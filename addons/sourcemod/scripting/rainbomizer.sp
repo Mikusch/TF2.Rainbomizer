@@ -87,13 +87,14 @@ char g_SkyList[][] =
 };
 
 Handle g_SDKCallEquipWearable;
+StringMap g_SoundCache;
 
 int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
 
 ConVar rainbomizer_skybox;
 ConVar rainbomizer_sounds;
-ConVar rainbomizer_sounds_truerandom;
+ConVar rainbomizer_sounds_precache;
 ConVar rainbomizer_models;
 ConVar rainbomizer_playermodels;
 ConVar rainbomizer_entities;
@@ -109,14 +110,18 @@ public Plugin pluginInfo =
 
 public void OnPluginStart()
 {
+	g_SoundCache = new StringMap();
+	
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
+	RegServerCmd("rainbomizer_flushsoundcache", SrvCmd_FlushSoundCache, "Flushes the internal sound cache");
+	
 	rainbomizer_skybox = CreateConVar("rainbomizer_skybox", "1", "Randomize skybox?");
 	rainbomizer_sounds = CreateConVar("rainbomizer_sounds", "1", "Randomize sounds?");
-	rainbomizer_sounds_truerandom = CreateConVar("rainbomizer_sounds_truerandom", "1", "Truly randomize sounds without consideration for filepath?");
+	rainbomizer_sounds_precache = CreateConVar("rainbomizer_sounds_precache", "0", "Whether to use precache table to randomize sounds (more performant)");
 	rainbomizer_models = CreateConVar("rainbomizer_models", "1", "Randomize models?");
 	rainbomizer_playermodels = CreateConVar("rainbomizer_playermodels", "1", "Randomize player models?");
 	rainbomizer_entities = CreateConVar("rainbomizer_entities", "1", "Randomize map entity properties?");
@@ -215,26 +220,76 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	if (!rainbomizer_sounds.BoolValue)
 		return Plugin_Continue;
 	
-	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
-	
-	int charinString = FindCharInString(sample, '/', true);
-	strcopy(sample, charinString + 1, sample);
-	
 	char sound[PLATFORM_MAX_PATH];
 	
-	// Try to find a precached sound in the same sub-directory
-	// TODO: This is pretty bad and iterates all sounds each time, we should call OpenDirectory and iterate only the needed sounds
-	for (;;)
+	// Randomizes sounds based on the sound precache table.
+	// This is fast, but limited to precached sounds.
+	if (rainbomizer_sounds_precache.BoolValue)
 	{
+		int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
 		int index = GetRandomInt(0, numStrings - 1);
 		ReadStringTable(g_SoundPrecacheTable, index, sound, sizeof(sound));
 		
-		if (rainbomizer_sounds_truerandom.BoolValue || strncmp(sound, sample, charinString) == 0)
+		strcopy(sample, sizeof(sample), sound);
+		return Plugin_Changed;
+	}
+	// Randomizes based on directory of the sound.
+	// May cause janking when sounds are first being fetched.
+	else
+	{
+		char soundDirectory[PLATFORM_MAX_PATH];
+		strcopy(soundDirectory, sizeof(soundDirectory), sample);
+		
+		int charInString = FindCharInString(soundDirectory, '/', true);
+		strcopy(soundDirectory, charInString + 1, soundDirectory);
+		
+		char directory[PLATFORM_MAX_PATH];
+		Format(directory, sizeof(directory), "sound/%s", soundDirectory);
+		
+		ArrayList sounds;
+		
+		// Filesystem operations are VERY expensive, keep a cache of the sounds we have fetched so far.
+		// This will make memory usage of the plugin fairly big but it shouldn't be much of an issue.
+		if (!g_SoundCache.GetValue(directory, sounds))
 		{
+			// Search the directory of the sound we are trying to randomize
+			DirectoryListing directoryListing = OpenDirectory(directory, true);
+			if (!directoryListing)
+				return Plugin_Handled;
+			
+			sounds = new ArrayList(PLATFORM_MAX_PATH);
+			
+			char file[PLATFORM_MAX_PATH];
+			FileType type;
+			while (directoryListing.GetNext(file, sizeof(file), type))
+			{
+				if (type != FileType_File)
+					continue;
+				
+				Format(file, sizeof(file), "%s/%s", soundDirectory, file);
+				sounds.PushString(file);
+			}
+			
+			delete directoryListing;
+			
+			// Add fetched sounds to cache
+			g_SoundCache.SetValue(directory, sounds);
+		}
+		
+		if (!sounds)
+			ThrowError("Failed to fetch random sound list for %s", sample);
+		
+		if (sounds.Length > 0)
+		{
+			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
+			PrecacheSound(sound);
+			
 			strcopy(sample, sizeof(sample), sound);
 			return Plugin_Changed;
 		}
 	}
+	
+	return Plugin_Continue;
 }
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
@@ -262,6 +317,12 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(client, Prop_Send, "m_nRenderFX", 6);
 	SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", 1);
+}
+
+public Action SrvCmd_FlushSoundCache(int args)
+{
+	g_SoundCache.Clear();
+	ReplyToCommand(0, "Sound cache cleared!");
 }
 
 public void SDKHookCB_LightSpawnPost(int entity)
