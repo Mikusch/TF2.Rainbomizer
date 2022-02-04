@@ -39,7 +39,7 @@ typeset FileIterator
 	function bool(const char[] file);
 }
 
-char g_Models[][] =
+char g_Playermodels[][] =
 {
 	"models/bots/headless_hatman.mdl",
 	"models/bots/skeleton_sniper/skeleton_sniper.mdl",
@@ -68,7 +68,7 @@ char g_Models[][] =
 };
 
 // Skybox names (excluding Pyrovision skyboxes)
-char g_SkyList[][] =
+char g_SkyNames[][] =
 {
 	"sky_alpinestorm_01",
 	"sky_badlands_01",
@@ -167,7 +167,7 @@ public void OnMapStart()
 {
 	if (rainbomizer_skybox.BoolValue)
 	{
-		DispatchKeyValue(0, "skyname", g_SkyList[GetRandomInt(0, sizeof(g_SkyList) - 1)]);
+		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
 	}
 }
 
@@ -435,7 +435,7 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	
 	char model[PLATFORM_MAX_PATH];
-	strcopy(model, sizeof(model), g_Models[GetRandomInt(0, sizeof(g_Models) - 1)]);
+	strcopy(model, sizeof(model), g_Playermodels[GetRandomInt(0, sizeof(g_Playermodels) - 1)]);
 	
 	Handle item = TF2Items_CreateItem(OVERRIDE_ALL | FORCE_GENERATION);
 	TF2Items_SetClassname(item, "tf_wearable");
