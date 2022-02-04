@@ -236,16 +236,12 @@ public void OnModelSpawned(int entity)
 		char directory[PLATFORM_MAX_PATH];
 		strcopy(directory, sizeof(directory), model);
 		
-		int charInString = FindCharInString(directory, '/', true);
-		strcopy(directory, charInString + 1, directory);
-		
 		// For weapons and cosmetics, go back an additional directory.
 		// This usually leads to all items of that class.
 		if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
-		{
-			charInString = FindCharInString(directory, '/', true);
-			strcopy(directory, charInString + 1, directory);
-		}
+			GetPreviousDirectoryPath(directory, 2);
+		else
+			GetPreviousDirectoryPath(directory, 1);
 		
 		ArrayList models;
 		
@@ -272,9 +268,20 @@ public void OnModelSpawned(int entity)
 	}
 }
 
+void GetPreviousDirectoryPath(char[] directory, int levels = 1)
+{
+	for (int i = 0; i < levels; i++)
+	{
+		int pos = FindCharInString(directory, '/', true);
+		
+		if (pos != -1)
+			strcopy(directory, pos + 1, directory);
+	}
+}
+
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
 {
-	// Search the directory of the sound we are trying to randomize
+	// Search the directory we are trying to randomize
 	DirectoryListing directoryListing = OpenDirectory(directory, true);
 	if (!directoryListing)
 		return;
@@ -289,6 +296,7 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 		{
 			case FileType_Directory:
 			{
+				// Collect files in subfolders too
 				IterateDirectoryRecursive(file, list, callback);
 			}
 			case FileType_File:
@@ -297,11 +305,8 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 				Call_PushString(file);
 				
 				bool result;
-				if (Call_Finish(result) == SP_ERROR_NONE)
-				{
-					if (!result)
-						continue;
-				}
+				if (Call_Finish(result) == SP_ERROR_NONE && !result)
+					continue;
 				
 				list.PushString(file);
 			}
@@ -326,7 +331,7 @@ public bool IterateModels(const char[] file)
 
 public bool IterateSounds(const char[] file)
 {
-	// No special filtering, for now
+	// No special filtering for sounds
 	return true;
 }
 
@@ -350,9 +355,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	{
 		char soundPath[PLATFORM_MAX_PATH];
 		strcopy(soundPath, sizeof(soundPath), sample);
-		
-		int charInString = FindCharInString(soundPath, '/', true);
-		strcopy(soundPath, charInString + 1, soundPath);
+		GetPreviousDirectoryPath(soundPath);
 		
 		char directory[PLATFORM_MAX_PATH];
 		Format(directory, sizeof(directory), "sound/%s", soundPath);
