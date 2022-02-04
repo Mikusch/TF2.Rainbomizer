@@ -88,6 +88,7 @@ char g_SkyList[][] =
 
 Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
+StringMap g_ModelCache;
 
 int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
@@ -96,6 +97,7 @@ ConVar rainbomizer_skybox;
 ConVar rainbomizer_sounds;
 ConVar rainbomizer_sounds_precache;
 ConVar rainbomizer_models;
+ConVar rainbomizer_models_precache;
 ConVar rainbomizer_playermodels;
 ConVar rainbomizer_entities;
 
@@ -111,6 +113,7 @@ public Plugin pluginInfo =
 public void OnPluginStart()
 {
 	g_SoundCache = new StringMap();
+	g_ModelCache = new StringMap();
 	
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
@@ -121,8 +124,9 @@ public void OnPluginStart()
 	
 	rainbomizer_skybox = CreateConVar("rainbomizer_skybox", "1", "Randomize skybox?");
 	rainbomizer_sounds = CreateConVar("rainbomizer_sounds", "1", "Randomize sounds?");
-	rainbomizer_sounds_precache = CreateConVar("rainbomizer_sounds_precache", "0", "Whether to use precache table to randomize sounds (more performant)");
+	rainbomizer_sounds_precache = CreateConVar("rainbomizer_sounds_precache", "0", "Whether to use precache table to randomize sounds (more performant but less random)");
 	rainbomizer_models = CreateConVar("rainbomizer_models", "1", "Randomize models?");
+	rainbomizer_models_precache = CreateConVar("rainbomizer_models_precache", "1", "Whether to use precache table to randomize models (more performant but less random)");
 	rainbomizer_playermodels = CreateConVar("rainbomizer_playermodels", "1", "Randomize player models?");
 	rainbomizer_entities = CreateConVar("rainbomizer_entities", "1", "Randomize map entity properties?");
 	
@@ -199,18 +203,79 @@ public void OnModelSpawned(int entity)
 	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
 	
 	char model[PLATFORM_MAX_PATH];
+	GetEntPropString(entity, Prop_Data, "m_ModelName", model, sizeof(model));
 	
-	for (;;)
+	if (rainbomizer_models_precache.BoolValue)
 	{
-		int index = GetRandomInt(0, numStrings - 1);
-		ReadStringTable(g_ModelPrecacheTable, index, model, sizeof(model));
-		
-		// Ignore brush and sprite models
-		if (StrContains(model, ".mdl") != -1)
+		for (;;)
 		{
+			int index = GetRandomInt(0, numStrings - 1);
+			ReadStringTable(g_ModelPrecacheTable, index, model, sizeof(model));
+			
+			// Ignore brush and sprite models
+			if (StrContains(model, ".mdl") != -1)
+			{
+				SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
+				SetEntProp(entity, Prop_Data, "m_nModelIndex", index);
+				break;
+			}
+		}
+	}
+	else
+	{
+		char directory[PLATFORM_MAX_PATH];
+		strcopy(directory, sizeof(directory), model);
+		
+		int charInString = FindCharInString(directory, '/', true);
+		strcopy(directory, charInString + 1, directory);
+		
+		if (directory[0] == '\0')
+			return;
+		
+		ArrayList models;
+		
+		// Filesystem operations are VERY expensive, keep a cache of the models we have fetched so far.
+		// This will make memory usage of the plugin fairly big but it shouldn't be much of an issue.
+		if (!g_ModelCache.GetValue(directory, models))
+		{
+			// Search the directory of the sound we are trying to randomize
+			DirectoryListing directoryListing = OpenDirectory(directory, true);
+			if (!directoryListing)
+				return;
+			
+			models = new ArrayList(PLATFORM_MAX_PATH);
+			
+			char file[PLATFORM_MAX_PATH];
+			FileType type;
+			while (directoryListing.GetNext(file, sizeof(file), type))
+			{
+				if (type != FileType_File)
+					continue;
+				
+				// Only fetch model files
+				if (StrContains(file, ".mdl") == -1)
+					continue;
+				
+				Format(file, sizeof(file), "%s/%s", directory, file);
+				models.PushString(file);
+			}
+			
+			delete directoryListing;
+			
+			// Add fetched models to cache
+			g_ModelCache.SetValue(directory, models);
+		}
+		
+		if (!models)
+			ThrowError("Failed to fetch random models list for %s", model);
+		
+		if (models.Length > 0)
+		{
+			models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
+			
+			int index = PrecacheModel(model);
 			SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
 			SetEntProp(entity, Prop_Data, "m_nModelIndex", index);
-			break;
 		}
 	}
 }
