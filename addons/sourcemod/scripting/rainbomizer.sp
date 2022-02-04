@@ -25,30 +25,30 @@
 
 char g_Models[][] =
 {
-	{ "models/bots/headless_hatman.mdl" },
-	{ "models/bots/skeleton_sniper/skeleton_sniper.mdl" },
-	{ "models/bots/skeleton_sniper_boss/skeleton_sniper_boss.mdl" },
-	{ "models/bots/merasmus/merasmus.mdl" },
-	{ "models/bots/demo/bot_demo.mdl" },
-	{ "models/bots/demo/bot_sentry_buster.mdl" },
-	{ "models/bots/engineer/bot_engineer.mdl" },
-	{ "models/bots/heavy/bot_heavy.mdl" },
-	{ "models/bots/medic/bot_medic.mdl" },
-	{ "models/bots/pyro/bot_pyro.mdl" },
-	{ "models/bots/scout/bot_scout.mdl" },
-	{ "models/bots/sniper/bot_sniper.mdl" },
-	{ "models/bots/soldier/bot_soldier.mdl" },
-	{ "models/bots/spy/bot_spy.mdl" },
-	{ "models/player/demo.mdl" },
-	{ "models/player/engineer.mdl" },
-	{ "models/player/heavy.mdl" },
-	{ "models/player/medic.mdl" },
-	{ "models/player/pyro.mdl" },
-	{ "models/player/scout.mdl" },
-	{ "models/player/sniper.mdl" },
-	{ "models/player/soldier.mdl" },
-	{ "models/player/spy.mdl" },
-	{ "models/player/items/taunts/yeti/yeti.mdl" },
+	"models/bots/headless_hatman.mdl",
+	"models/bots/skeleton_sniper/skeleton_sniper.mdl",
+	"models/bots/skeleton_sniper_boss/skeleton_sniper_boss.mdl",
+	"models/bots/merasmus/merasmus.mdl",
+	"models/bots/demo/bot_demo.mdl",
+	"models/bots/demo/bot_sentry_buster.mdl",
+	"models/bots/engineer/bot_engineer.mdl",
+	"models/bots/heavy/bot_heavy.mdl",
+	"models/bots/medic/bot_medic.mdl",
+	"models/bots/pyro/bot_pyro.mdl",
+	"models/bots/scout/bot_scout.mdl",
+	"models/bots/sniper/bot_sniper.mdl",
+	"models/bots/soldier/bot_soldier.mdl",
+	"models/bots/spy/bot_spy.mdl",
+	"models/player/demo.mdl",
+	"models/player/engineer.mdl",
+	"models/player/heavy.mdl",
+	"models/player/medic.mdl",
+	"models/player/pyro.mdl",
+	"models/player/scout.mdl",
+	"models/player/sniper.mdl",
+	"models/player/soldier.mdl",
+	"models/player/spy.mdl",
+	"models/player/items/taunts/yeti/yeti.mdl",
 };
 
 char g_SkyList[][] =
@@ -274,8 +274,8 @@ public void SDKHookCB_LightSpawnPost(int entity)
 
 public void SDKHookCB_FogControllerpawnPost(int entity)
 {
-	SetEntProp(entity, Prop_Data, "m_fog.start", GetRandomInt(500, 1000));
-	SetEntProp(entity, Prop_Data, "m_fog.end", GetRandomInt(500, 1000));
+	SetEntPropFloat(entity, Prop_Data, "m_fog.start", GetRandomFloat(500.0, 1000.0));
+	SetEntPropFloat(entity, Prop_Data, "m_fog.end", GetRandomFloat(500.0, 1000.0));
 	SetEntPropFloat(entity, Prop_Data, "m_fog.maxdensity", GetRandomFloat());
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
