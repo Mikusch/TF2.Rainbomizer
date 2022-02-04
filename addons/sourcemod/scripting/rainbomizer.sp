@@ -23,6 +23,17 @@
 #pragma newdecls required
 #pragma semicolon 1
 
+#define CHAR_STREAM			'*'		// as one of 1st 2 chars in name, indicates streaming wav data
+#define CHAR_USERVOX		'?'		// as one of 1st 2 chars in name, indicates user realtime voice data
+#define CHAR_SENTENCE		'!'		// as one of 1st 2 chars in name, indicates sentence wav
+#define CHAR_DRYMIX			'#'		// as one of 1st 2 chars in name, indicates wav bypasses dsp fx
+#define CHAR_DOPPLER		'>'		// as one of 1st 2 chars in name, indicates doppler encoded stereo wav: left wav (incomming) and right wav (outgoing).
+#define CHAR_DIRECTIONAL	'<'		// as one of 1st 2 chars in name, indicates stereo wav has direction cone: mix left wav (front facing) with right wav (rear facing) based on soundfacing direction
+#define CHAR_DISTVARIANT	'^'		// as one of 1st 2 chars in name, indicates distance variant encoded stereo wav (left is close, right is far)
+#define CHAR_OMNI			'@'		// as one of 1st 2 chars in name, indicates non-directional wav (default mono or stereo)
+#define CHAR_SPATIALSTEREO	')'		// as one of 1st 2 chars in name, indicates spatialized stereo wav
+#define CHAR_FAST_PITCH		'}'		// as one of 1st 2 chars in name, forces low quality, non-interpolated pitch shift
+
 typeset FileIterator
 {
 	function bool(const char[] file);
@@ -268,6 +279,31 @@ public void OnModelSpawned(int entity)
 	}
 }
 
+bool IsSoundChar(char c)
+{
+	bool b;
+	
+	b = (c == CHAR_STREAM || c == CHAR_USERVOX || c == CHAR_SENTENCE || c == CHAR_DRYMIX || c == CHAR_OMNI);
+	b = b || (c == CHAR_DOPPLER || c == CHAR_DIRECTIONAL || c == CHAR_DISTVARIANT || c == CHAR_SPATIALSTEREO || c == CHAR_FAST_PITCH);
+	
+	return b;
+}
+
+void SkipSoundChars(char[] sound, int len)
+{
+	int cnt = 0;
+	
+	for (int i = 0; i < len; i++)
+	{
+		if (!IsSoundChar(sound[i]))
+			break;
+		
+		cnt++;
+	}
+	
+	strcopy(sound, len, sound[cnt]);
+}
+
 void GetPreviousDirectoryPath(char[] directory, int levels = 1)
 {
 	for (int i = 0; i < levels; i++)
@@ -359,9 +395,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 		
 		char directory[PLATFORM_MAX_PATH];
 		Format(directory, sizeof(directory), "sound/%s", soundPath);
-		
-		// TODO: Remove more sound chars
-		ReplaceString(directory, sizeof(directory), ")", "");
+		SkipSoundChars(directory, sizeof(directory));
 		
 		ArrayList sounds;
 		
