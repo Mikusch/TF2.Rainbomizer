@@ -23,6 +23,11 @@
 #pragma newdecls required
 #pragma semicolon 1
 
+typeset FileIterator
+{
+	function bool(const char[] file);
+}
+
 char g_Models[][] =
 {
 	"models/bots/headless_hatman.mdl",
@@ -51,6 +56,7 @@ char g_Models[][] =
 	"models/player/items/taunts/yeti/yeti.mdl",
 };
 
+// Skybox names (excluding Pyrovision skyboxes)
 char g_SkyList[][] =
 {
 	"sky_dustbowl_01",
@@ -83,7 +89,6 @@ char g_SkyList[][] =
 	"sky_midnight_02",
 	"sky_volcano_01",
 	"sky_day01_01",
-	"sky_rainbow_01",
 };
 
 Handle g_SDKCallEquipWearable;
@@ -95,9 +100,9 @@ int g_SoundPrecacheTable;
 
 ConVar rainbomizer_skybox;
 ConVar rainbomizer_sounds;
-ConVar rainbomizer_sounds_precache;
+ConVar rainbomizer_sounds_use_precache_table;
 ConVar rainbomizer_models;
-ConVar rainbomizer_models_precache;
+ConVar rainbomizer_models_use_precache_table;
 ConVar rainbomizer_playermodels;
 ConVar rainbomizer_entities;
 
@@ -121,12 +126,13 @@ public void OnPluginStart()
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
 	RegServerCmd("rainbomizer_flushsoundcache", SrvCmd_FlushSoundCache, "Flushes the internal sound cache");
+	RegServerCmd("rainbomizer_flushmodelcache", SrvCmd_FlushModelCache, "Flushes the internal model cache");
 	
 	rainbomizer_skybox = CreateConVar("rainbomizer_skybox", "1", "Randomize skybox?");
 	rainbomizer_sounds = CreateConVar("rainbomizer_sounds", "1", "Randomize sounds?");
-	rainbomizer_sounds_precache = CreateConVar("rainbomizer_sounds_precache", "0", "Whether to use precache table to randomize sounds (more performant but less random)");
+	rainbomizer_sounds_use_precache_table = CreateConVar("rainbomizer_sounds_use_precache_table", "0", "Whether to use the sound precache table for randomization (better performance, worse randomization)");
 	rainbomizer_models = CreateConVar("rainbomizer_models", "1", "Randomize models?");
-	rainbomizer_models_precache = CreateConVar("rainbomizer_models_precache", "1", "Whether to use precache table to randomize models (more performant but less random)");
+	rainbomizer_models_use_precache_table = CreateConVar("rainbomizer_models_use_precache_table", "0", "Whether to use the model precache table for randomization (better performance, worse randomization)");
 	rainbomizer_playermodels = CreateConVar("rainbomizer_playermodels", "1", "Randomize player models?");
 	rainbomizer_entities = CreateConVar("rainbomizer_entities", "1", "Randomize map entity properties?");
 	
@@ -205,7 +211,11 @@ public void OnModelSpawned(int entity)
 	char model[PLATFORM_MAX_PATH];
 	GetEntPropString(entity, Prop_Data, "m_ModelName", model, sizeof(model));
 	
-	if (rainbomizer_models_precache.BoolValue)
+	// Do not randomize if there is no model
+	if (model[0] == '\0')
+		return;
+	
+	if (rainbomizer_models_use_precache_table.BoolValue)
 	{
 		for (;;)
 		{
@@ -229,38 +239,20 @@ public void OnModelSpawned(int entity)
 		int charInString = FindCharInString(directory, '/', true);
 		strcopy(directory, charInString + 1, directory);
 		
-		if (directory[0] == '\0')
-			return;
+		// For weapons and cosmetics, go back an additional directory.
+		// This usually leads to all items of that class.
+		if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
+		{
+			charInString = FindCharInString(directory, '/', true);
+			strcopy(directory, charInString + 1, directory);
+		}
 		
 		ArrayList models;
 		
-		// Filesystem operations are VERY expensive, keep a cache of the models we have fetched so far.
-		// This will make memory usage of the plugin fairly big but it shouldn't be much of an issue.
 		if (!g_ModelCache.GetValue(directory, models))
 		{
-			// Search the directory of the sound we are trying to randomize
-			DirectoryListing directoryListing = OpenDirectory(directory, true);
-			if (!directoryListing)
-				return;
-			
 			models = new ArrayList(PLATFORM_MAX_PATH);
-			
-			char file[PLATFORM_MAX_PATH];
-			FileType type;
-			while (directoryListing.GetNext(file, sizeof(file), type))
-			{
-				if (type != FileType_File)
-					continue;
-				
-				// Only fetch model files
-				if (StrContains(file, ".mdl") == -1)
-					continue;
-				
-				Format(file, sizeof(file), "%s/%s", directory, file);
-				models.PushString(file);
-			}
-			
-			delete directoryListing;
+			IterateDirectoryRecursive(directory, models, IterateModels);
 			
 			// Add fetched models to cache
 			g_ModelCache.SetValue(directory, models);
@@ -280,6 +272,64 @@ public void OnModelSpawned(int entity)
 	}
 }
 
+void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
+{
+	// Search the directory of the sound we are trying to randomize
+	DirectoryListing directoryListing = OpenDirectory(directory, true);
+	if (!directoryListing)
+		return;
+	
+	char file[PLATFORM_MAX_PATH];
+	FileType type;
+	while (directoryListing.GetNext(file, sizeof(file), type))
+	{
+		Format(file, sizeof(file), "%s/%s", directory, file);
+		
+		switch (type)
+		{
+			case FileType_Directory:
+			{
+				IterateDirectoryRecursive(file, list, callback);
+			}
+			case FileType_File:
+			{
+				Call_StartFunction(null, callback);
+				Call_PushString(file);
+				
+				bool result;
+				if (Call_Finish(result) == SP_ERROR_NONE)
+				{
+					if (!result)
+						continue;
+				}
+				
+				list.PushString(file);
+			}
+		}
+	}
+	
+	delete directoryListing;
+}
+
+public bool IterateModels(const char[] file)
+{
+	// Only allow studio models
+	if (StrContains(file, ".mdl") == -1)
+		return false;
+	
+	// Exclude all kinds of festivizers
+	if (StrContains(file, "festivizer") != -1 || StrContains(file, "xms") != -1 || StrContains(file, "xmas") != -1)
+		return false;
+	
+	return true;
+}
+
+public bool IterateSounds(const char[] file)
+{
+	// No special filtering, for now
+	return true;
+}
+
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
 	if (!rainbomizer_sounds.BoolValue)
@@ -287,9 +337,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	
 	char sound[PLATFORM_MAX_PATH];
 	
-	// Randomizes sounds based on the sound precache table.
-	// This is fast, but limited to precached sounds.
-	if (rainbomizer_sounds_precache.BoolValue)
+	if (rainbomizer_sounds_use_precache_table.BoolValue)
 	{
 		int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
 		int index = GetRandomInt(0, numStrings - 1);
@@ -298,18 +346,19 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 		strcopy(sample, sizeof(sample), sound);
 		return Plugin_Changed;
 	}
-	// Randomizes based on directory of the sound.
-	// May cause janking when sounds are first being fetched.
 	else
 	{
-		char soundDirectory[PLATFORM_MAX_PATH];
-		strcopy(soundDirectory, sizeof(soundDirectory), sample);
+		char soundPath[PLATFORM_MAX_PATH];
+		strcopy(soundPath, sizeof(soundPath), sample);
 		
-		int charInString = FindCharInString(soundDirectory, '/', true);
-		strcopy(soundDirectory, charInString + 1, soundDirectory);
+		int charInString = FindCharInString(soundPath, '/', true);
+		strcopy(soundPath, charInString + 1, soundPath);
 		
 		char directory[PLATFORM_MAX_PATH];
-		Format(directory, sizeof(directory), "sound/%s", soundDirectory);
+		Format(directory, sizeof(directory), "sound/%s", soundPath);
+		
+		// TODO: Remove more sound chars
+		ReplaceString(directory, sizeof(directory), ")", "");
 		
 		ArrayList sounds;
 		
@@ -317,25 +366,17 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 		// This will make memory usage of the plugin fairly big but it shouldn't be much of an issue.
 		if (!g_SoundCache.GetValue(directory, sounds))
 		{
-			// Search the directory of the sound we are trying to randomize
-			DirectoryListing directoryListing = OpenDirectory(directory, true);
-			if (!directoryListing)
-				return Plugin_Handled;
-			
 			sounds = new ArrayList(PLATFORM_MAX_PATH);
+			IterateDirectoryRecursive(directory, sounds, IterateSounds);
 			
-			char file[PLATFORM_MAX_PATH];
-			FileType type;
-			while (directoryListing.GetNext(file, sizeof(file), type))
+			// Replace filepath with sound path and re-add any sound characters we removed
+			for (int i = 0; i < sounds.Length; i++)
 			{
-				if (type != FileType_File)
-					continue;
-				
-				Format(file, sizeof(file), "%s/%s", soundDirectory, file);
-				sounds.PushString(file);
+				char file[PLATFORM_MAX_PATH];
+				sounds.GetString(i, file, sizeof(file));
+				ReplaceString(file, sizeof(file), directory, soundPath);
+				sounds.SetString(i, file);
 			}
-			
-			delete directoryListing;
 			
 			// Add fetched sounds to cache
 			g_SoundCache.SetValue(directory, sounds);
@@ -390,6 +431,12 @@ public Action SrvCmd_FlushSoundCache(int args)
 	ReplyToCommand(0, "Sound cache cleared!");
 }
 
+public Action SrvCmd_FlushModelCache(int args)
+{
+	g_ModelCache.Clear();
+	ReplyToCommand(0, "Model cache cleared!");
+}
+
 public void SDKHookCB_LightSpawnPost(int entity)
 {
 	if (HasEntProp(entity, Prop_Send, "m_clrRender"))
@@ -400,8 +447,9 @@ public void SDKHookCB_LightSpawnPost(int entity)
 
 public void SDKHookCB_FogControllerpawnPost(int entity)
 {
-	SetEntPropFloat(entity, Prop_Data, "m_fog.start", GetRandomFloat(500.0, 1000.0));
-	SetEntPropFloat(entity, Prop_Data, "m_fog.end", GetRandomFloat(500.0, 1000.0));
+	float fog = GetRandomFloat(500.0, 1000.0);
+	SetEntPropFloat(entity, Prop_Data, "m_fog.start", fog);
+	SetEntPropFloat(entity, Prop_Data, "m_fog.end", fog * GetRandomFloat(1.5, 3.0));
 	SetEntPropFloat(entity, Prop_Data, "m_fog.maxdensity", GetRandomFloat());
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
