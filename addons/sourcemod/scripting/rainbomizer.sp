@@ -184,7 +184,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		// Check if this entity is a non-player CBaseAnimating
 		if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation"))
 		{
-			SDKHook(entity, SDKHook_SpawnPost, OnModelSpawned);
+			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
 		}
 	}
 	
@@ -262,7 +262,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	return Plugin_Continue;
 }
 
-public void OnModelSpawned(int entity)
+public void SDKHookCB_ModelEntitySpawnPost(int entity)
 {
 	char model[PLATFORM_MAX_PATH];
 	GetEntPropString(entity, Prop_Data, "m_ModelName", model, sizeof(model));
@@ -319,42 +319,46 @@ void RebuildSoundCache()
 {
 	g_SoundCache.Clear();
 	
-	char sound[PLATFORM_MAX_PATH];
-	
 	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
-	LogMessage("Rebuilding sound cache for %d entries", numStrings);
+	LogMessage("Rebuilding sound cache for %d string table entries", numStrings);
+	
+	int total = 0;
 	
 	for (int i = 0; i < numStrings; i++)
 	{
+		char sound[PLATFORM_MAX_PATH];
 		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
+		
+		// Ignore empty string table entries
+		if (sound[0] == '\0')
+			continue;
 		
 		char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
 		GetSoundDirectory(sound, soundPath, sizeof(soundPath), filePath, sizeof(filePath));
 		
-		// Do not scan sound/ for files to avoid stack overflows
-		if (soundPath[0] == '\0')
-			continue;
-		
 		ArrayList sounds;
 		if (!g_SoundCache.GetValue(filePath, sounds))
-			CollectSounds(filePath, soundPath, sounds);
+			total += CollectSounds(filePath, soundPath, sounds);
 	}
+	
+	LogMessage("Rebuilt sound cache with %d files", total);
 }
 
 void RebuildModelCache()
 {
 	g_ModelCache.Clear();
 	
-	char model[PLATFORM_MAX_PATH];
-	
 	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
-	LogMessage("Rebuilding model cache for %d entries", numStrings);
+	LogMessage("Rebuilding model cache for %d string table entries", numStrings);
+	
+	int total = 0;
 	
 	for (int i = 0; i < numStrings; i++)
 	{
+		char model[PLATFORM_MAX_PATH];
 		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
 		
-		// Ignore empty models
+		// Ignore empty string table entries
 		if (model[0] == '\0')
 			continue;
 		
@@ -371,11 +375,13 @@ void RebuildModelCache()
 		
 		ArrayList models;
 		if (!g_ModelCache.GetValue(filePath, models))
-			CollectModels(filePath, models);
+			total += CollectSounds(filePath, filePath, models);
 	}
+	
+	LogMessage("Rebuilt model cache with %d files", total);
 }
 
-void CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
+int CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
 {
 	sounds = new ArrayList(PLATFORM_MAX_PATH);
 	IterateDirectoryRecursive(directory, sounds, IterateSounds);
@@ -391,6 +397,7 @@ void CollectSounds(const char[] directory, const char[] soundPath, ArrayList &so
 	
 	// Add fetched sounds to cache
 	g_SoundCache.SetValue(directory, sounds);
+	return sounds.Length;
 }
 
 void CollectModels(const char[] directory, ArrayList &models)
@@ -432,7 +439,7 @@ void GetSoundDirectory(const char[] sound, char[] soundPathBuffer, int soundPath
 	GetPreviousDirectoryPath(soundPathBuffer);
 	
 	// Remove sound chars and prepend "sound/"
-	strcopy(filePathBuffer, filePathLength, filePathBuffer);
+	strcopy(filePathBuffer, filePathLength, soundPathBuffer);
 	SkipSoundChars(filePathBuffer, filePathBuffer, filePathLength);
 	Format(filePathBuffer, filePathLength, "sound/%s", filePathBuffer);
 }
