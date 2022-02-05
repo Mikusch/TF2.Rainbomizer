@@ -167,7 +167,7 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-	// Map started or plugin has loaded, collect all currently precached files
+	// String tables get cleared on level start, clear our cache
 	g_SoundCache.Clear();
 	g_ModelCache.Clear();
 	
@@ -175,93 +175,6 @@ public void OnMapStart()
 	{
 		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
 	}
-}
-
-void RebuildSoundCache()
-{
-	g_SoundCache.Clear();
-	
-	char sound[PLATFORM_MAX_PATH];
-	
-	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
-	LogMessage("Rebuilding sound cache for %d entries", numStrings);
-	
-	for (int i = 0; i < numStrings; i++)
-	{
-		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
-		
-		char soundPath[PLATFORM_MAX_PATH], directory[PLATFORM_MAX_PATH];
-		GetSoundDirectory(sound, soundPath, sizeof(soundPath), directory, sizeof(directory));
-		
-		// Do not scan sound/ for files to avoid stack overflows
-		if (soundPath[0] == '\0')
-			continue;
-		
-		ArrayList sounds;
-		if (!g_SoundCache.GetValue(directory, sounds))
-			CollectSounds(directory, soundPath, sounds);
-	}
-}
-
-void RebuildModelCache()
-{
-	g_ModelCache.Clear();
-	
-	char model[PLATFORM_MAX_PATH];
-	
-	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
-	LogMessage("Rebuilding model cache for %d entries", numStrings);
-	
-	for (int i = 0; i < numStrings; i++)
-	{
-		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
-		
-		// Ignore empty models
-		if (model[0] == '\0')
-			continue;
-		
-		// Ignore non-studio models
-		if (StrContains(model, ".mdl") == -1)
-			continue;
-		
-		char directory[PLATFORM_MAX_PATH];
-		GetModelDirectory(model, directory, sizeof(directory));
-		
-		// Do not scan models/ for files to avoid stack overflows
-		if (StrEqual(directory, "models"))
-			continue;
-		
-		ArrayList models;
-		if (!g_ModelCache.GetValue(directory, models))
-			CollectModels(directory, models);
-	}
-}
-
-void CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
-{
-	sounds = new ArrayList(PLATFORM_MAX_PATH);
-	IterateDirectoryRecursive(directory, sounds, IterateSounds);
-	
-	// Replace filepath with sound path and re-add any sound characters we removed
-	for (int j = 0; j < sounds.Length; j++)
-	{
-		char file[PLATFORM_MAX_PATH];
-		sounds.GetString(j, file, sizeof(file));
-		ReplaceString(file, sizeof(file), directory, soundPath);
-		sounds.SetString(j, file);
-	}
-	
-	// Add fetched sounds to cache
-	g_SoundCache.SetValue(directory, sounds);
-}
-
-void CollectModels(const char[] directory, ArrayList &models)
-{
-	models = new ArrayList(PLATFORM_MAX_PATH);
-	IterateDirectoryRecursive(directory, models, IterateModels);
-	
-	// Add fetched models to cache
-	g_ModelCache.SetValue(directory, models);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -305,16 +218,16 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	if (!rbm_randomize_sounds.BoolValue)
 		return Plugin_Continue;
 	
-	char soundPath[PLATFORM_MAX_PATH], directory[PLATFORM_MAX_PATH];
-	GetSoundDirectory(sample, soundPath, sizeof(soundPath), directory, sizeof(directory));
+	char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
+	GetSoundDirectory(sample, soundPath, sizeof(soundPath), filePath, sizeof(filePath));
 	
 	ArrayList sounds;
-	if (!g_SoundCache.GetValue(directory, sounds))
-		CollectSounds(directory, soundPath, sounds);
+	if (!g_SoundCache.GetValue(filePath, sounds))
+		CollectSounds(filePath, soundPath, sounds);
 	
 	if (sounds && sounds.Length > 0)
 	{
-		if (!IsStringTableAlmostFull(g_SoundPrecacheTable))
+		if (CanAddToStringTable(g_SoundPrecacheTable))
 		{
 			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sample, sizeof(sample));
 			PrecacheSound(sample);
@@ -334,7 +247,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 			}
 			
 			// Update our cache
-			g_SoundCache.SetValue(directory, sounds);
+			g_SoundCache.SetValue(filePath, sounds);
 			
 			if (sounds.Length > 0)
 			{
@@ -358,16 +271,16 @@ public void OnModelSpawned(int entity)
 	if (model[0] == '\0')
 		return;
 	
-	char directory[PLATFORM_MAX_PATH];
-	GetModelDirectory(model, directory, sizeof(directory));
+	char filePath[PLATFORM_MAX_PATH];
+	GetModelDirectory(model, filePath, sizeof(filePath));
 	
 	ArrayList models;
-	if (!g_ModelCache.GetValue(directory, models))
-		CollectModels(directory, models);
+	if (!g_ModelCache.GetValue(filePath, models))
+		CollectModels(filePath, models);
 	
 	if (models && models.Length > 0)
 	{
-		if (!IsStringTableAlmostFull(g_ModelPrecacheTable))
+		if (CanAddToStringTable(g_ModelPrecacheTable))
 		{
 			models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
 			
@@ -387,7 +300,7 @@ public void OnModelSpawned(int entity)
 			}
 			
 			// Update our cache
-			g_ModelCache.SetValue(directory, models);
+			g_ModelCache.SetValue(filePath, models);
 			
 			if (models.Length > 0)
 			{
@@ -402,29 +315,91 @@ public void OnModelSpawned(int entity)
 	}
 }
 
-bool IsSoundChar(char c)
+void RebuildSoundCache()
 {
-	bool b;
+	g_SoundCache.Clear();
 	
-	b = (c == CHAR_STREAM || c == CHAR_USERVOX || c == CHAR_SENTENCE || c == CHAR_DRYMIX || c == CHAR_OMNI);
-	b = b || (c == CHAR_DOPPLER || c == CHAR_DIRECTIONAL || c == CHAR_DISTVARIANT || c == CHAR_SPATIALSTEREO || c == CHAR_FAST_PITCH);
+	char sound[PLATFORM_MAX_PATH];
 	
-	return b;
+	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
+	LogMessage("Rebuilding sound cache for %d entries", numStrings);
+	
+	for (int i = 0; i < numStrings; i++)
+	{
+		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
+		
+		char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
+		GetSoundDirectory(sound, soundPath, sizeof(soundPath), filePath, sizeof(filePath));
+		
+		// Do not scan sound/ for files to avoid stack overflows
+		if (soundPath[0] == '\0')
+			continue;
+		
+		ArrayList sounds;
+		if (!g_SoundCache.GetValue(filePath, sounds))
+			CollectSounds(filePath, soundPath, sounds);
+	}
 }
 
-void SkipSoundChars(char[] sound, int len)
+void RebuildModelCache()
 {
-	int cnt = 0;
+	g_ModelCache.Clear();
 	
-	for (int i = 0; i < len; i++)
+	char model[PLATFORM_MAX_PATH];
+	
+	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
+	LogMessage("Rebuilding model cache for %d entries", numStrings);
+	
+	for (int i = 0; i < numStrings; i++)
 	{
-		if (!IsSoundChar(sound[i]))
-			break;
+		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
 		
-		cnt++;
+		// Ignore empty models
+		if (model[0] == '\0')
+			continue;
+		
+		// Ignore non-studio models
+		if (StrContains(model, ".mdl") == -1)
+			continue;
+		
+		char filePath[PLATFORM_MAX_PATH];
+		GetModelDirectory(model, filePath, sizeof(filePath));
+		
+		// Do not scan models/ for files to avoid stack overflows
+		if (StrEqual(filePath, "models"))
+			continue;
+		
+		ArrayList models;
+		if (!g_ModelCache.GetValue(filePath, models))
+			CollectModels(filePath, models);
+	}
+}
+
+void CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
+{
+	sounds = new ArrayList(PLATFORM_MAX_PATH);
+	IterateDirectoryRecursive(directory, sounds, IterateSounds);
+	
+	// Replace filepath with sound path and re-add any sound characters we removed
+	for (int j = 0; j < sounds.Length; j++)
+	{
+		char file[PLATFORM_MAX_PATH];
+		sounds.GetString(j, file, sizeof(file));
+		ReplaceString(file, sizeof(file), directory, soundPath);
+		sounds.SetString(j, file);
 	}
 	
-	strcopy(sound, len, sound[cnt]);
+	// Add fetched sounds to cache
+	g_SoundCache.SetValue(directory, sounds);
+}
+
+void CollectModels(const char[] directory, ArrayList &models)
+{
+	models = new ArrayList(PLATFORM_MAX_PATH);
+	IterateDirectoryRecursive(directory, models, IterateModels);
+	
+	// Add fetched models to cache
+	g_ModelCache.SetValue(directory, models);
 }
 
 void GetPreviousDirectoryPath(char[] directory, int levels = 1)
@@ -438,33 +413,36 @@ void GetPreviousDirectoryPath(char[] directory, int levels = 1)
 	}
 }
 
-void GetModelDirectory(const char[] model, char[] directory, int maxlength)
+void GetModelDirectory(const char[] model, char[] buffer, int size)
 {
-	strcopy(directory, maxlength, model);
+	strcopy(buffer, size, model);
 	
-	// For weapons and cosmetics, go back an additional directory.
-	// This usually leads to all items of that class.
-	if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
-		GetPreviousDirectoryPath(directory, 2);
+	// Weapons and cosmetics usually reside in their own subfolders, so go back two levels
+	// For everything else, go up one level
+	if (StrContains(buffer, "weapons/") != -1 || StrContains(buffer, "player/items/") != -1)
+		GetPreviousDirectoryPath(buffer, 2);
 	else
-		GetPreviousDirectoryPath(directory, 1);
+		GetPreviousDirectoryPath(buffer, 1);
 }
 
-void GetSoundDirectory(const char[] sound, char[] soundPath, int soundPathLength, char[] directory, int directoryLength)
+void GetSoundDirectory(const char[] sound, char[] soundPathBuffer, int soundPathLength, char[] filePathBuffer, int filePathLength)
 {
-	// Go up one level
-	strcopy(soundPath, soundPathLength, sound);
-	GetPreviousDirectoryPath(soundPath);
+	// For sounds, we generally just go up one level
+	strcopy(soundPathBuffer, soundPathLength, sound);
+	GetPreviousDirectoryPath(soundPathBuffer);
 	
-	// Append sound/ to directory name
-	strcopy(directory, directoryLength, soundPath);
-	SkipSoundChars(directory, directoryLength);
-	Format(directory, directoryLength, "sound/%s", directory);
+	// Remove sound chars and prepend "sound/"
+	strcopy(filePathBuffer, filePathLength, filePathBuffer);
+	SkipSoundChars(filePathBuffer, filePathBuffer, filePathLength);
+	Format(filePathBuffer, filePathLength, "sound/%s", filePathBuffer);
 }
 
-bool IsStringTableAlmostFull(int tableidx)
+bool CanAddToStringTable(int tableidx)
 {
-	return float(GetStringTableNumStrings(tableidx)) / float(GetStringTableMaxStrings(tableidx)) >= rbm_stringtable_safety_treshold.FloatValue;
+	// If the string table is getting full, do not add to it
+	int num = GetStringTableNumStrings(tableidx);
+	int max = GetStringTableMaxStrings(tableidx);
+	return float(num) / float(max) < rbm_stringtable_safety_treshold.FloatValue;
 }
 
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
@@ -493,6 +471,7 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 			}
 			case FileType_File:
 			{
+				// Call iterator function
 				Call_StartFunction(null, callback);
 				Call_PushString(file);
 				
@@ -506,6 +485,51 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 	}
 	
 	delete directoryListing;
+}
+
+stock bool IsSoundChar(char c)
+{
+	bool b;
+	
+	b = (c == CHAR_STREAM || c == CHAR_USERVOX || c == CHAR_SENTENCE || c == CHAR_DRYMIX || c == CHAR_OMNI);
+	b = b || (c == CHAR_DOPPLER || c == CHAR_DIRECTIONAL || c == CHAR_DISTVARIANT || c == CHAR_SPATIALSTEREO || c == CHAR_FAST_PITCH);
+	
+	return b;
+}
+
+stock void SkipSoundChars(const char[] sound, char[] buffer, int size)
+{
+	int cnt = 0;
+	
+	for (int i = 0; i < size; i++)
+	{
+		if (!IsSoundChar(sound[i]))
+			break;
+		
+		cnt++;
+	}
+	
+	strcopy(buffer, size, sound[cnt]);
+}
+
+stock void GetRandomColorRGB(int &r, int &g, int &b, int &a)
+{
+	r = GetRandomInt(0, 255);
+	g = GetRandomInt(0, 255);
+	b = GetRandomInt(0, 255);
+	a = GetRandomInt(0, 255);
+}
+
+stock int GetRandomColorInt()
+{
+	int r, g, b, a;
+	GetRandomColorRGB(r, g, b, a);
+	return Color32ToInt(r, g, b, a);
+}
+
+stock int Color32ToInt(int r, int g, int b, int a)
+{
+	return (r << 24) | (g << 16) | (b << 8) | (a);
 }
 
 public bool IterateModels(const char[] file)
@@ -595,24 +619,4 @@ public void SDKHookCB_FogControllerpawnPost(int entity)
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.blend", GetRandomInt(0, 1));
-}
-
-void GetRandomColor(int &r, int &g, int &b, int &a)
-{
-	r = GetRandomInt(0, 255);
-	g = GetRandomInt(0, 255);
-	b = GetRandomInt(0, 255);
-	a = GetRandomInt(0, 255);
-}
-
-int GetRandomColorInt()
-{
-	int r, g, b, a;
-	GetRandomColor(r, g, b, a);
-	return Color32ToInt(r, g, b, a);
-}
-
-int Color32ToInt(int r, int g, int b, int a)
-{
-	return (r << 24) | (g << 16) | (b << 8) | (a);
 }
