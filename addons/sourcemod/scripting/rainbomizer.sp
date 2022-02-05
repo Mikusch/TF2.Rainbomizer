@@ -100,14 +100,15 @@ StringMap g_ModelCache;
 
 int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
+char g_SearchPathId[32];
 
-ConVar rainbomizer_skybox;
-ConVar rainbomizer_sounds;
-ConVar rainbomizer_sounds_use_precache_table;
-ConVar rainbomizer_models;
-ConVar rainbomizer_models_use_precache_table;
-ConVar rainbomizer_playermodels;
-ConVar rainbomizer_entities;
+ConVar rainbomizer_search_path_id;
+ConVar rainbomizer_stringtable_safety_treshold;
+ConVar rainbomizer_randomize_skybox;
+ConVar rainbomizer_randomize_sounds;
+ConVar rainbomizer_randomize_models;
+ConVar rainbomizer_randomize_playermodels;
+ConVar rainbomizer_randomize_entities;
 
 public Plugin pluginInfo =
 {
@@ -126,18 +127,19 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	
-	HookEvent("post_inventory_application", Event_PostInventoryApplication);
-	
 	RegServerCmd("rainbomizer_flushsoundcache", SrvCmd_FlushSoundCache, "Flushes the internal sound cache");
 	RegServerCmd("rainbomizer_flushmodelcache", SrvCmd_FlushModelCache, "Flushes the internal model cache");
 	
-	rainbomizer_skybox = CreateConVar("rainbomizer_skybox", "1", "Randomize skybox?");
-	rainbomizer_sounds = CreateConVar("rainbomizer_sounds", "1", "Randomize sounds?");
-	rainbomizer_sounds_use_precache_table = CreateConVar("rainbomizer_sounds_use_precache_table", "0", "Whether to use the sound precache table for randomization (better performance, worse randomization)");
-	rainbomizer_models = CreateConVar("rainbomizer_models", "1", "Randomize models?");
-	rainbomizer_models_use_precache_table = CreateConVar("rainbomizer_models_use_precache_table", "0", "Whether to use the model precache table for randomization (better performance, worse randomization)");
-	rainbomizer_playermodels = CreateConVar("rainbomizer_playermodels", "1", "Randomize player models?");
-	rainbomizer_entities = CreateConVar("rainbomizer_entities", "1", "Randomize map entity properties?");
+	HookEvent("post_inventory_application", Event_PostInventoryApplication);
+	
+	rainbomizer_search_path_id = CreateConVar("rainbomizer_search_path_id", "GAME", "The game path to search for assets (GAME, MOD, etc.)");
+	rainbomizer_search_path_id.AddChangeHook(ConVarChanged_SearchPathId);
+	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "0.9", "Stop writing to string tables when they are this full.");
+	rainbomizer_randomize_skybox = CreateConVar("rainbomizer_randomize_skybox", "1", "Randomize skybox?");
+	rainbomizer_randomize_sounds = CreateConVar("rainbomizer_randomize_sounds", "1", "Randomize sounds?");
+	rainbomizer_randomize_models = CreateConVar("rainbomizer_randomize_models", "1", "Randomize models?");
+	rainbomizer_randomize_playermodels = CreateConVar("rainbomizer_randomize_playermodels", "1", "Randomize player models?");
+	rainbomizer_randomize_entities = CreateConVar("rainbomizer_randomize_entities", "1", "Randomize map entity properties?");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
@@ -163,9 +165,14 @@ public void OnPluginStart()
 	}
 }
 
+public void OnConfigsExecuted()
+{
+	rainbomizer_search_path_id.GetString(g_SearchPathId, sizeof(g_SearchPathId));
+}
+
 public void OnMapStart()
 {
-	if (rainbomizer_skybox.BoolValue)
+	if (rainbomizer_randomize_skybox.BoolValue)
 	{
 		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
 	}
@@ -173,7 +180,7 @@ public void OnMapStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (rainbomizer_models.BoolValue)
+	if (rainbomizer_randomize_models.BoolValue)
 	{
 		// Check if this entity is a non-player CBaseAnimating
 		if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation"))
@@ -182,7 +189,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		}
 	}
 	
-	if (rainbomizer_entities.BoolValue)
+	if (rainbomizer_randomize_entities.BoolValue)
 	{
 		// Randomize light colors
 		if (StrContains(classname, "light") != -1 || strcmp(classname, "env_lightglow") == 0)
@@ -209,8 +216,6 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public void OnModelSpawned(int entity)
 {
-	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
-	
 	char model[PLATFORM_MAX_PATH];
 	GetEntPropString(entity, Prop_Data, "m_ModelName", model, sizeof(model));
 	
@@ -218,55 +223,60 @@ public void OnModelSpawned(int entity)
 	if (model[0] == '\0')
 		return;
 	
-	if (rainbomizer_models_use_precache_table.BoolValue)
-	{
-		for (;;)
-		{
-			int index = GetRandomInt(0, numStrings - 1);
-			ReadStringTable(g_ModelPrecacheTable, index, model, sizeof(model));
-			
-			// Ignore brush and sprite models
-			if (StrContains(model, ".mdl") != -1)
-			{
-				SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
-				SetEntProp(entity, Prop_Data, "m_nModelIndex", index);
-				break;
-			}
-		}
-	}
+	char directory[PLATFORM_MAX_PATH];
+	strcopy(directory, sizeof(directory), model);
+	
+	// For weapons and cosmetics, go back an additional directory.
+	// This usually leads to all items of that class.
+	if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
+		GetPreviousDirectoryPath(directory, 2);
 	else
+		GetPreviousDirectoryPath(directory, 1);
+	
+	ArrayList models;
+	
+	if (!g_ModelCache.GetValue(directory, models) && !IsStringTableAlmostFull(g_ModelPrecacheTable))
 	{
-		char directory[PLATFORM_MAX_PATH];
-		strcopy(directory, sizeof(directory), model);
+		models = new ArrayList(PLATFORM_MAX_PATH);
+		IterateDirectoryRecursive(directory, models, IterateModels);
 		
-		// For weapons and cosmetics, go back an additional directory.
-		// This usually leads to all items of that class.
-		if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
-			GetPreviousDirectoryPath(directory, 2);
-		else
-			GetPreviousDirectoryPath(directory, 1);
-		
-		ArrayList models;
-		
-		if (!g_ModelCache.GetValue(directory, models))
-		{
-			models = new ArrayList(PLATFORM_MAX_PATH);
-			IterateDirectoryRecursive(directory, models, IterateModels);
-			
-			// Add fetched models to cache
-			g_ModelCache.SetValue(directory, models);
-		}
-		
-		if (!models)
-			ThrowError("Failed to fetch random models list for %s", model);
-		
-		if (models.Length > 0)
+		// Add fetched models to cache
+		g_ModelCache.SetValue(directory, models);
+	}
+	
+	if (models && models.Length > 0)
+	{
+		if (!IsStringTableAlmostFull(g_ModelPrecacheTable))
 		{
 			models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
 			
 			int index = PrecacheModel(model);
 			SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
 			SetEntProp(entity, Prop_Data, "m_nModelIndex", index);
+		}
+		else
+		{
+			// Remove non-precached entries from our cache
+			for (int i = 0; i < models.Length; i++)
+			{
+				models.GetString(i, model, sizeof(model));
+				
+				if (FindStringIndex(g_ModelPrecacheTable, model) == INVALID_STRING_INDEX)
+					models.Erase(i--);
+			}
+			
+			// Update our cache
+			g_ModelCache.SetValue(directory, models);
+			
+			if (models.Length > 0)
+			{
+				// Fetch random string from updated cache
+				models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
+				
+				int index = PrecacheModel(model);
+				SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
+				SetEntProp(entity, Prop_Data, "m_nModelIndex", index);
+			}
 		}
 	}
 }
@@ -307,10 +317,15 @@ void GetPreviousDirectoryPath(char[] directory, int levels = 1)
 	}
 }
 
+bool IsStringTableAlmostFull(int tableidx)
+{
+	return float(GetStringTableNumStrings(tableidx)) / float(GetStringTableMaxStrings(tableidx)) >= rainbomizer_stringtable_safety_treshold.FloatValue;
+}
+
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
 {
 	// Search the directory we are trying to randomize
-	DirectoryListing directoryListing = OpenDirectory(directory, true);
+	DirectoryListing directoryListing = OpenDirectory(directory, true, g_SearchPathId);
 	if (!directoryListing)
 		return;
 	
@@ -363,64 +378,75 @@ public bool IterateSounds(const char[] file)
 	return true;
 }
 
+public void ConVarChanged_SearchPathId(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	strcopy(g_SearchPathId, sizeof(g_SearchPathId), newValue);
+}
+
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
-	if (!rainbomizer_sounds.BoolValue)
+	if (!rainbomizer_randomize_sounds.BoolValue)
 		return Plugin_Continue;
 	
-	char sound[PLATFORM_MAX_PATH];
+	char soundPath[PLATFORM_MAX_PATH];
+	strcopy(soundPath, sizeof(soundPath), sample);
+	GetPreviousDirectoryPath(soundPath);
 	
-	if (rainbomizer_sounds_use_precache_table.BoolValue)
+	char directory[PLATFORM_MAX_PATH];
+	Format(directory, sizeof(directory), "sound/%s", soundPath);
+	SkipSoundChars(directory, sizeof(directory));
+	
+	ArrayList sounds;
+	
+	if (!g_SoundCache.GetValue(directory, sounds) && !IsStringTableAlmostFull(g_SoundPrecacheTable))
 	{
-		int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
-		int index = GetRandomInt(0, numStrings - 1);
-		ReadStringTable(g_SoundPrecacheTable, index, sound, sizeof(sound));
+		sounds = new ArrayList(PLATFORM_MAX_PATH);
+		IterateDirectoryRecursive(directory, sounds, IterateSounds);
 		
-		strcopy(sample, sizeof(sample), sound);
-		return Plugin_Changed;
-	}
-	else
-	{
-		char soundPath[PLATFORM_MAX_PATH];
-		strcopy(soundPath, sizeof(soundPath), sample);
-		GetPreviousDirectoryPath(soundPath);
-		
-		char directory[PLATFORM_MAX_PATH];
-		Format(directory, sizeof(directory), "sound/%s", soundPath);
-		SkipSoundChars(directory, sizeof(directory));
-		
-		ArrayList sounds;
-		
-		// Filesystem operations are VERY expensive, keep a cache of the sounds we have fetched so far.
-		// This will make memory usage of the plugin fairly big but it shouldn't be much of an issue.
-		if (!g_SoundCache.GetValue(directory, sounds))
+		// Replace filepath with sound path and re-add any sound characters we removed
+		for (int i = 0; i < sounds.Length; i++)
 		{
-			sounds = new ArrayList(PLATFORM_MAX_PATH);
-			IterateDirectoryRecursive(directory, sounds, IterateSounds);
-			
-			// Replace filepath with sound path and re-add any sound characters we removed
-			for (int i = 0; i < sounds.Length; i++)
-			{
-				char file[PLATFORM_MAX_PATH];
-				sounds.GetString(i, file, sizeof(file));
-				ReplaceString(file, sizeof(file), directory, soundPath);
-				sounds.SetString(i, file);
-			}
-			
-			// Add fetched sounds to cache
-			g_SoundCache.SetValue(directory, sounds);
+			char file[PLATFORM_MAX_PATH];
+			sounds.GetString(i, file, sizeof(file));
+			ReplaceString(file, sizeof(file), directory, soundPath);
+			sounds.SetString(i, file);
 		}
 		
-		if (!sounds)
-			ThrowError("Failed to fetch random sound list for %s", sample);
-		
-		if (sounds.Length > 0)
+		// Add fetched sounds to cache
+		g_SoundCache.SetValue(directory, sounds);
+	}
+	
+	if (sounds && sounds.Length > 0)
+	{
+		if (!IsStringTableAlmostFull(g_SoundPrecacheTable))
 		{
-			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
-			PrecacheSound(sound);
-			
-			strcopy(sample, sizeof(sample), sound);
+			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sample, sizeof(sample));
+			PrecacheSound(sample);
 			return Plugin_Changed;
+		}
+		else
+		{
+			char sound[PLATFORM_MAX_PATH];
+			
+			// Remove non-precached entries from our cache
+			for (int i = 0; i < sounds.Length; i++)
+			{
+				sounds.GetString(i, sound, sizeof(sound));
+				
+				if (FindStringIndex(g_SoundPrecacheTable, sound) == INVALID_STRING_INDEX)
+					sounds.Erase(i--);
+			}
+			
+			// Update our cache
+			g_SoundCache.SetValue(directory, sounds);
+			
+			if (sounds.Length > 0)
+			{
+				// Fetch random string from updated cache
+				sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
+				strcopy(sample, sizeof(sample), sound);
+				return Plugin_Changed;
+			}
 		}
 	}
 	
@@ -429,7 +455,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!rainbomizer_playermodels.BoolValue)
+	if (!rainbomizer_randomize_playermodels.BoolValue)
 		return;
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
@@ -498,14 +524,6 @@ int GetRandomColorInt()
 	int r, g, b, a;
 	GetRandomColor(r, g, b, a);
 	return Color32ToInt(r, g, b, a);
-}
-
-void IntToColor32(int inColor, int &r, int &g, int &b, int &a)
-{
-	r = (inColor >> 24);
-	g = (inColor >> 16) & 0xFF;
-	b = (inColor >> 8) & 0xFF;
-	a = (inColor) & 0xFF;
 }
 
 int Color32ToInt(int r, int g, int b, int a)
