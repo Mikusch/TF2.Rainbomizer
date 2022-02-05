@@ -132,7 +132,7 @@ public void OnPluginStart()
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
 	rainbomizer_search_path_id = CreateConVar("rainbomizer_search_path_id", "MOD", "The search path from gameinfo.txt used to load assets.");
-	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "0.0", "Stop loading assets when string tables are this full (in percent).");
+	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "1.0", "Stop loading assets when string tables are this full (in percent).");
 	rainbomizer_randomize_skybox = CreateConVar("rainbomizer_randomize_skybox", "1", "Randomize skybox?");
 	rainbomizer_randomize_sounds = CreateConVar("rainbomizer_randomize_sounds", "1", "Randomize sounds?");
 	rainbomizer_randomize_models = CreateConVar("rainbomizer_randomize_models", "1", "Randomize models?");
