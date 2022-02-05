@@ -100,7 +100,6 @@ StringMap g_ModelCache;
 
 int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
-char g_SearchPathId[32];
 
 ConVar rainbomizer_search_path_id;
 ConVar rainbomizer_stringtable_safety_treshold;
@@ -132,9 +131,8 @@ public void OnPluginStart()
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
-	rainbomizer_search_path_id = CreateConVar("rainbomizer_search_path_id", "GAME", "The game path to search for assets (GAME, MOD, etc.)");
-	rainbomizer_search_path_id.AddChangeHook(ConVarChanged_SearchPathId);
-	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "0.9", "Stop writing to string tables when they are this full.");
+	rainbomizer_search_path_id = CreateConVar("rainbomizer_search_path_id", "MOD", "The search path from gameinfo.txt used to load assets.");
+	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "0.0", "Stop loading assets when string tables are this full (in percent).");
 	rainbomizer_randomize_skybox = CreateConVar("rainbomizer_randomize_skybox", "1", "Randomize skybox?");
 	rainbomizer_randomize_sounds = CreateConVar("rainbomizer_randomize_sounds", "1", "Randomize sounds?");
 	rainbomizer_randomize_models = CreateConVar("rainbomizer_randomize_models", "1", "Randomize models?");
@@ -165,43 +163,15 @@ public void OnPluginStart()
 	}
 }
 
-public void OnConfigsExecuted()
-{
-	rainbomizer_search_path_id.GetString(g_SearchPathId, sizeof(g_SearchPathId));
-}
-
 public void OnMapStart()
 {
 	// Map started or plugin has loaded, collect all currently precached files
-	RebuildModelCache();
-	RebuildSoundCache();
+	g_SoundCache.Clear();
+	g_ModelCache.Clear();
 	
 	if (rainbomizer_randomize_skybox.BoolValue)
 	{
 		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
-	}
-}
-
-void RebuildModelCache()
-{
-	g_ModelCache.Clear();
-	
-	char model[PLATFORM_MAX_PATH];
-	
-	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
-	for (int i = 0; i < numStrings; i++)
-	{
-		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
-		
-		char directory[PLATFORM_MAX_PATH];
-		GetModelDirectory(model, directory, sizeof(directory));
-		
-		ArrayList models;
-		if (!g_ModelCache.GetValue(directory, models))
-			models = new ArrayList(PLATFORM_MAX_PATH);
-		
-		models.PushString(model);
-		g_ModelCache.SetValue(directory, models);
 	}
 }
 
@@ -212,25 +182,84 @@ void RebuildSoundCache()
 	char sound[PLATFORM_MAX_PATH];
 	
 	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
+	LogMessage("Rebuilding sound cache for %d entries", numStrings);
+	
 	for (int i = 0; i < numStrings; i++)
 	{
 		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
 		
-		char soundPath[PLATFORM_MAX_PATH];
-		strcopy(soundPath, sizeof(soundPath), sound);
-		GetPreviousDirectoryPath(soundPath);
+		char soundPath[PLATFORM_MAX_PATH], directory[PLATFORM_MAX_PATH];
+		GetSoundDirectory(sound, soundPath, sizeof(soundPath), directory, sizeof(directory));
 		
-		char directory[PLATFORM_MAX_PATH];
-		Format(directory, sizeof(directory), "sound/%s", soundPath);
-		SkipSoundChars(directory, sizeof(directory));
+		// Do not scan sound/ for files to avoid stack overflows
+		if (soundPath[0] == '\0')
+			continue;
 		
 		ArrayList sounds;
 		if (!g_SoundCache.GetValue(directory, sounds))
-			sounds = new ArrayList(PLATFORM_MAX_PATH);
-		
-		sounds.PushString(sound);
-		g_SoundCache.SetValue(directory, sounds);
+			CollectSounds(directory, soundPath, sounds);
 	}
+}
+
+void RebuildModelCache()
+{
+	g_ModelCache.Clear();
+	
+	char model[PLATFORM_MAX_PATH];
+	
+	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
+	LogMessage("Rebuilding model cache for %d entries", numStrings);
+	
+	for (int i = 0; i < numStrings; i++)
+	{
+		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
+		
+		// Ignore empty models
+		if (model[0] == '\0')
+			continue;
+		
+		// Ignore non-studio models
+		if (StrContains(model, ".mdl") == -1)
+			continue;
+		
+		char directory[PLATFORM_MAX_PATH];
+		GetModelDirectory(model, directory, sizeof(directory));
+		
+		// Do not scan models/ for files to avoid stack overflows
+		if (StrEqual(directory, "models"))
+			continue;
+		
+		ArrayList models;
+		if (!g_ModelCache.GetValue(directory, models))
+			CollectModels(directory, models);
+	}
+}
+
+void CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
+{
+	sounds = new ArrayList(PLATFORM_MAX_PATH);
+	IterateDirectoryRecursive(directory, sounds, IterateSounds);
+	
+	// Replace filepath with sound path and re-add any sound characters we removed
+	for (int j = 0; j < sounds.Length; j++)
+	{
+		char file[PLATFORM_MAX_PATH];
+		sounds.GetString(j, file, sizeof(file));
+		ReplaceString(file, sizeof(file), directory, soundPath);
+		sounds.SetString(j, file);
+	}
+	
+	// Add fetched sounds to cache
+	g_SoundCache.SetValue(directory, sounds);
+}
+
+void CollectModels(const char[] directory, ArrayList &models)
+{
+	models = new ArrayList(PLATFORM_MAX_PATH);
+	IterateDirectoryRecursive(directory, models, IterateModels);
+	
+	// Add fetched models to cache
+	g_ModelCache.SetValue(directory, models);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -269,6 +298,55 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
+public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
+{
+	if (!rainbomizer_randomize_sounds.BoolValue)
+		return Plugin_Continue;
+	
+	char soundPath[PLATFORM_MAX_PATH], directory[PLATFORM_MAX_PATH];
+	GetSoundDirectory(sample, soundPath, sizeof(soundPath), directory, sizeof(directory));
+	
+	ArrayList sounds;
+	if (!g_SoundCache.GetValue(directory, sounds))
+		CollectSounds(directory, soundPath, sounds);
+	
+	if (sounds && sounds.Length > 0)
+	{
+		if (!IsStringTableAlmostFull(g_SoundPrecacheTable))
+		{
+			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sample, sizeof(sample));
+			PrecacheSound(sample);
+			return Plugin_Changed;
+		}
+		else
+		{
+			char sound[PLATFORM_MAX_PATH];
+			
+			// Remove non-precached entries from our cache
+			for (int i = 0; i < sounds.Length; i++)
+			{
+				sounds.GetString(i, sound, sizeof(sound));
+				
+				if (FindStringIndex(g_SoundPrecacheTable, sound) == INVALID_STRING_INDEX)
+					sounds.Erase(i--);
+			}
+			
+			// Update our cache
+			g_SoundCache.SetValue(directory, sounds);
+			
+			if (sounds.Length > 0)
+			{
+				// Fetch random string from updated cache
+				sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
+				strcopy(sample, sizeof(sample), sound);
+				return Plugin_Changed;
+			}
+		}
+	}
+	
+	return Plugin_Continue;
+}
+
 public void OnModelSpawned(int entity)
 {
 	char model[PLATFORM_MAX_PATH];
@@ -282,15 +360,8 @@ public void OnModelSpawned(int entity)
 	GetModelDirectory(model, directory, sizeof(directory));
 	
 	ArrayList models;
-	
-	if (!g_ModelCache.GetValue(directory, models) && !IsStringTableAlmostFull(g_ModelPrecacheTable))
-	{
-		models = new ArrayList(PLATFORM_MAX_PATH);
-		IterateDirectoryRecursive(directory, models, IterateModels);
-		
-		// Add fetched models to cache
-		g_ModelCache.SetValue(directory, models);
-	}
+	if (!g_ModelCache.GetValue(directory, models))
+		CollectModels(directory, models);
 	
 	if (models && models.Length > 0)
 	{
@@ -377,6 +448,18 @@ void GetModelDirectory(const char[] model, char[] directory, int maxlength)
 		GetPreviousDirectoryPath(directory, 1);
 }
 
+void GetSoundDirectory(const char[] sound, char[] soundPath, int soundPathLength, char[] directory, int directoryLength)
+{
+	// Go up one level
+	strcopy(soundPath, soundPathLength, sound);
+	GetPreviousDirectoryPath(soundPath);
+	
+	// Append sound/ to directory name
+	strcopy(directory, directoryLength, soundPath);
+	SkipSoundChars(directory, directoryLength);
+	Format(directory, directoryLength, "sound/%s", directory);
+}
+
 bool IsStringTableAlmostFull(int tableidx)
 {
 	return float(GetStringTableNumStrings(tableidx)) / float(GetStringTableMaxStrings(tableidx)) >= rainbomizer_stringtable_safety_treshold.FloatValue;
@@ -384,8 +467,12 @@ bool IsStringTableAlmostFull(int tableidx)
 
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
 {
+	// Grab path ID
+	char pathId[16];
+	rainbomizer_search_path_id.GetString(pathId, sizeof(pathId));
+	
 	// Search the directory we are trying to randomize
-	DirectoryListing directoryListing = OpenDirectory(directory, true, g_SearchPathId);
+	DirectoryListing directoryListing = OpenDirectory(directory, true, pathId);
 	if (!directoryListing)
 		return;
 	
@@ -436,81 +523,6 @@ public bool IterateSounds(const char[] file)
 {
 	// No special filtering for sounds
 	return true;
-}
-
-public void ConVarChanged_SearchPathId(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	strcopy(g_SearchPathId, sizeof(g_SearchPathId), newValue);
-}
-
-public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
-{
-	if (!rainbomizer_randomize_sounds.BoolValue)
-		return Plugin_Continue;
-	
-	char soundPath[PLATFORM_MAX_PATH];
-	strcopy(soundPath, sizeof(soundPath), sample);
-	GetPreviousDirectoryPath(soundPath);
-	
-	char directory[PLATFORM_MAX_PATH];
-	Format(directory, sizeof(directory), "sound/%s", soundPath);
-	SkipSoundChars(directory, sizeof(directory));
-	
-	ArrayList sounds;
-	
-	if (!g_SoundCache.GetValue(directory, sounds) && !IsStringTableAlmostFull(g_SoundPrecacheTable))
-	{
-		sounds = new ArrayList(PLATFORM_MAX_PATH);
-		IterateDirectoryRecursive(directory, sounds, IterateSounds);
-		
-		// Replace filepath with sound path and re-add any sound characters we removed
-		for (int i = 0; i < sounds.Length; i++)
-		{
-			char file[PLATFORM_MAX_PATH];
-			sounds.GetString(i, file, sizeof(file));
-			ReplaceString(file, sizeof(file), directory, soundPath);
-			sounds.SetString(i, file);
-		}
-		
-		// Add fetched sounds to cache
-		g_SoundCache.SetValue(directory, sounds);
-	}
-	
-	if (sounds && sounds.Length > 0)
-	{
-		if (!IsStringTableAlmostFull(g_SoundPrecacheTable))
-		{
-			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sample, sizeof(sample));
-			PrecacheSound(sample);
-			return Plugin_Changed;
-		}
-		else
-		{
-			char sound[PLATFORM_MAX_PATH];
-			
-			// Remove non-precached entries from our cache
-			for (int i = 0; i < sounds.Length; i++)
-			{
-				sounds.GetString(i, sound, sizeof(sound));
-				
-				if (FindStringIndex(g_SoundPrecacheTable, sound) == INVALID_STRING_INDEX)
-					sounds.Erase(i--);
-			}
-			
-			// Update our cache
-			g_SoundCache.SetValue(directory, sounds);
-			
-			if (sounds.Length > 0)
-			{
-				// Fetch random string from updated cache
-				sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
-				strcopy(sample, sizeof(sample), sound);
-				return Plugin_Changed;
-			}
-		}
-	}
-	
-	return Plugin_Continue;
 }
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
