@@ -127,8 +127,8 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	
-	RegServerCmd("rainbomizer_flushsoundcache", SrvCmd_FlushSoundCache, "Flushes the internal sound cache");
-	RegServerCmd("rainbomizer_flushmodelcache", SrvCmd_FlushModelCache, "Flushes the internal model cache");
+	RegServerCmd("rainbomizer_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache");
+	RegServerCmd("rainbomizer_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache");
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
@@ -540,16 +540,16 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", 1);
 }
 
-public Action SrvCmd_FlushSoundCache(int args)
+public Action SrvCmd_RebuildSoundCache(int args)
 {
-	g_SoundCache.Clear();
-	ReplyToCommand(0, "Sound cache cleared!");
+	RebuildSoundCache();
+	ReplyToCommand(0, "Sound cache successfully rebuilt!");
 }
 
-public Action SrvCmd_FlushModelCache(int args)
+public Action SrvCmd_RebuildModelCache(int args)
 {
-	g_ModelCache.Clear();
-	ReplyToCommand(0, "Model cache cleared!");
+	RebuildModelCache();
+	ReplyToCommand(0, "Model cache successfully rebuilt!");
 }
 
 public void SDKHookCB_LightSpawnPost(int entity)
