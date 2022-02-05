@@ -101,13 +101,13 @@ StringMap g_ModelCache;
 int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
 
-ConVar rainbomizer_search_path_id;
-ConVar rainbomizer_stringtable_safety_treshold;
-ConVar rainbomizer_randomize_skybox;
-ConVar rainbomizer_randomize_sounds;
-ConVar rainbomizer_randomize_models;
-ConVar rainbomizer_randomize_playermodels;
-ConVar rainbomizer_randomize_entities;
+ConVar rbm_search_path_id;
+ConVar rbm_stringtable_safety_treshold;
+ConVar rbm_randomize_skybox;
+ConVar rbm_randomize_sounds;
+ConVar rbm_randomize_models;
+ConVar rbm_randomize_playermodels;
+ConVar rbm_randomize_entities;
 
 public Plugin pluginInfo =
 {
@@ -126,18 +126,20 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	
-	RegServerCmd("rainbomizer_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache");
-	RegServerCmd("rainbomizer_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache");
+	RegServerCmd("rbm_clearsoundcache", SrvCmd_ClearSoundCache, "Clears the internal sound cache");
+	RegServerCmd("rbm_clearmodelcache", SrvCmd_ClearModelCache, "Clears the internal model cache");
+	RegServerCmd("rbm_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache");
+	RegServerCmd("rbm_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache");
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
-	rainbomizer_search_path_id = CreateConVar("rainbomizer_search_path_id", "MOD", "The search path from gameinfo.txt used to load assets.");
-	rainbomizer_stringtable_safety_treshold = CreateConVar("rainbomizer_stringtable_safety_treshold", "1.0", "Stop loading assets when string tables are this full (in percent).");
-	rainbomizer_randomize_skybox = CreateConVar("rainbomizer_randomize_skybox", "1", "Randomize skybox?");
-	rainbomizer_randomize_sounds = CreateConVar("rainbomizer_randomize_sounds", "1", "Randomize sounds?");
-	rainbomizer_randomize_models = CreateConVar("rainbomizer_randomize_models", "1", "Randomize models?");
-	rainbomizer_randomize_playermodels = CreateConVar("rainbomizer_randomize_playermodels", "1", "Randomize player models?");
-	rainbomizer_randomize_entities = CreateConVar("rainbomizer_randomize_entities", "1", "Randomize map entity properties?");
+	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to load assets.");
+	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.95", "Stop loading assets when string tables are this full (in percent).");
+	rbm_randomize_skybox = CreateConVar("rbm_randomize_skybox", "1", "Randomize skybox?");
+	rbm_randomize_sounds = CreateConVar("rbm_randomize_sounds", "1", "Randomize sounds?");
+	rbm_randomize_models = CreateConVar("rbm_randomize_models", "1", "Randomize models?");
+	rbm_randomize_playermodels = CreateConVar("rbm_randomize_playermodels", "1", "Randomize player models?");
+	rbm_randomize_entities = CreateConVar("rbm_randomize_entities", "1", "Randomize map entity properties?");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
@@ -169,7 +171,7 @@ public void OnMapStart()
 	g_SoundCache.Clear();
 	g_ModelCache.Clear();
 	
-	if (rainbomizer_randomize_skybox.BoolValue)
+	if (rbm_randomize_skybox.BoolValue)
 	{
 		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
 	}
@@ -264,7 +266,7 @@ void CollectModels(const char[] directory, ArrayList &models)
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (rainbomizer_randomize_models.BoolValue)
+	if (rbm_randomize_models.BoolValue)
 	{
 		// Check if this entity is a non-player CBaseAnimating
 		if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation"))
@@ -273,7 +275,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		}
 	}
 	
-	if (rainbomizer_randomize_entities.BoolValue)
+	if (rbm_randomize_entities.BoolValue)
 	{
 		// Randomize light colors
 		if (StrContains(classname, "light") != -1 || strcmp(classname, "env_lightglow") == 0)
@@ -300,7 +302,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
-	if (!rainbomizer_randomize_sounds.BoolValue)
+	if (!rbm_randomize_sounds.BoolValue)
 		return Plugin_Continue;
 	
 	char soundPath[PLATFORM_MAX_PATH], directory[PLATFORM_MAX_PATH];
@@ -462,14 +464,14 @@ void GetSoundDirectory(const char[] sound, char[] soundPath, int soundPathLength
 
 bool IsStringTableAlmostFull(int tableidx)
 {
-	return float(GetStringTableNumStrings(tableidx)) / float(GetStringTableMaxStrings(tableidx)) >= rainbomizer_stringtable_safety_treshold.FloatValue;
+	return float(GetStringTableNumStrings(tableidx)) / float(GetStringTableMaxStrings(tableidx)) >= rbm_stringtable_safety_treshold.FloatValue;
 }
 
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
 {
 	// Grab path ID
 	char pathId[16];
-	rainbomizer_search_path_id.GetString(pathId, sizeof(pathId));
+	rbm_search_path_id.GetString(pathId, sizeof(pathId));
 	
 	// Search the directory we are trying to randomize
 	DirectoryListing directoryListing = OpenDirectory(directory, true, pathId);
@@ -527,7 +529,7 @@ public bool IterateSounds(const char[] file)
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!rainbomizer_randomize_playermodels.BoolValue)
+	if (!rbm_randomize_playermodels.BoolValue)
 		return;
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
@@ -550,6 +552,18 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(client, Prop_Send, "m_nRenderFX", 6);
 	SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", 1);
+}
+
+public Action SrvCmd_ClearSoundCache(int args)
+{
+	g_SoundCache.Clear();
+	ReplyToCommand(0, "Sound cache successfully cleared!");
+}
+
+public Action SrvCmd_ClearModelCache(int args)
+{
+	g_ModelCache.Clear();
+	ReplyToCommand(0, "Model cache successfully cleared!");
 }
 
 public Action SrvCmd_RebuildSoundCache(int args)
