@@ -172,9 +172,64 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
+	// Map started or plugin has loaded, collect all currently precached files
+	RebuildModelCache();
+	RebuildSoundCache();
+	
 	if (rainbomizer_randomize_skybox.BoolValue)
 	{
 		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
+	}
+}
+
+void RebuildModelCache()
+{
+	g_ModelCache.Clear();
+	
+	char model[PLATFORM_MAX_PATH];
+	
+	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
+	for (int i = 0; i < numStrings; i++)
+	{
+		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
+		
+		char directory[PLATFORM_MAX_PATH];
+		GetModelDirectory(model, directory, sizeof(directory));
+		
+		ArrayList models;
+		if (!g_ModelCache.GetValue(directory, models))
+			models = new ArrayList(PLATFORM_MAX_PATH);
+		
+		models.PushString(model);
+		g_ModelCache.SetValue(directory, models);
+	}
+}
+
+void RebuildSoundCache()
+{
+	g_SoundCache.Clear();
+	
+	char sound[PLATFORM_MAX_PATH];
+	
+	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
+	for (int i = 0; i < numStrings; i++)
+	{
+		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
+		
+		char soundPath[PLATFORM_MAX_PATH];
+		strcopy(soundPath, sizeof(soundPath), sound);
+		GetPreviousDirectoryPath(soundPath);
+		
+		char directory[PLATFORM_MAX_PATH];
+		Format(directory, sizeof(directory), "sound/%s", soundPath);
+		SkipSoundChars(directory, sizeof(directory));
+		
+		ArrayList sounds;
+		if (!g_SoundCache.GetValue(directory, sounds))
+			sounds = new ArrayList(PLATFORM_MAX_PATH);
+		
+		sounds.PushString(sound);
+		g_SoundCache.SetValue(directory, sounds);
 	}
 }
 
@@ -224,14 +279,7 @@ public void OnModelSpawned(int entity)
 		return;
 	
 	char directory[PLATFORM_MAX_PATH];
-	strcopy(directory, sizeof(directory), model);
-	
-	// For weapons and cosmetics, go back an additional directory.
-	// This usually leads to all items of that class.
-	if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
-		GetPreviousDirectoryPath(directory, 2);
-	else
-		GetPreviousDirectoryPath(directory, 1);
+	GetModelDirectory(model, directory, sizeof(directory));
 	
 	ArrayList models;
 	
@@ -315,6 +363,18 @@ void GetPreviousDirectoryPath(char[] directory, int levels = 1)
 		if (pos != -1)
 			strcopy(directory, pos + 1, directory);
 	}
+}
+
+void GetModelDirectory(const char[] model, char[] directory, int maxlength)
+{
+	strcopy(directory, maxlength, model);
+	
+	// For weapons and cosmetics, go back an additional directory.
+	// This usually leads to all items of that class.
+	if (StrContains(directory, "weapons/") != -1 || StrContains(directory, "player/items/") != -1)
+		GetPreviousDirectoryPath(directory, 2);
+	else
+		GetPreviousDirectoryPath(directory, 1);
 }
 
 bool IsStringTableAlmostFull(int tableidx)
