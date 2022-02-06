@@ -197,17 +197,17 @@ public void OnEntityCreated(int entity, const char[] classname)
 	if (rbm_randomize_entities.BoolValue)
 	{
 		// Randomize light colors
-		if (StrContains(classname, "light") != -1 || strcmp(classname, "env_lightglow") == 0)
+		if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
 		{
 			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_LightSpawnPost);
 		}
 		
-		if (strcmp(classname, "env_fog_controller") == 0)
+		if (StrEqual(classname, "env_fog_controller"))
 		{
-			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerpawnPost);
+			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
 		}
 		
-		if (strcmp(classname, "env_fog_controller") == 0)
+		if (StrEqual(classname, "env_fog_controller"))
 		{
 			char color[16];
 			Format(color, sizeof(color), "%d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
@@ -215,6 +215,11 @@ public void OnEntityCreated(int entity, const char[] classname)
 			
 			Format(color, sizeof(color), "%d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
 			DispatchKeyValue(entity, "fogcolor2", color);
+		}
+		
+		if (StrEqual(classname, "shadow_control"))
+		{
+			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
 		}
 	}
 }
@@ -643,8 +648,13 @@ public void SDKHookCB_LightSpawnPost(int entity)
 	}
 }
 
-public void SDKHookCB_FogControllerpawnPost(int entity)
+public void SDKHookCB_FogControllerSpawnPost(int entity)
 {
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
+}
+
+public void SDKHookCB_ShadowControlSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt());
 }
