@@ -645,11 +645,6 @@ public void SDKHookCB_LightSpawnPost(int entity)
 
 public void SDKHookCB_FogControllerpawnPost(int entity)
 {
-	float fog = GetRandomFloat(500.0, 1000.0);
-	SetEntPropFloat(entity, Prop_Data, "m_fog.start", fog);
-	SetEntPropFloat(entity, Prop_Data, "m_fog.end", fog * GetRandomFloat(1.5, 3.0));
-	SetEntPropFloat(entity, Prop_Data, "m_fog.maxdensity", GetRandomFloat());
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
-	SetEntProp(entity, Prop_Data, "m_fog.blend", GetRandomInt(0, 1));
 }
