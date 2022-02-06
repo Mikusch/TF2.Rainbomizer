@@ -109,7 +109,7 @@ ConVar rbm_randomize_models;
 ConVar rbm_randomize_playermodels;
 ConVar rbm_randomize_entities;
 
-public Plugin pluginInfo =
+public Plugin pluginInfo = 
 {
 	name = "[TF2] Rainbomizer",
 	author = "Mikusch",
@@ -315,9 +315,29 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	}
 }
 
+void ClearCache(StringMap cache)
+{
+	// Delete all contained lists in the map
+	StringMapSnapshot snapshot = cache.Snapshot();
+	for (int i = 0; i < snapshot.Length; i++)
+	{
+		int size = snapshot.KeyBufferSize(i);
+		char[] key = new char[size];
+		snapshot.GetKey(i, key, size);
+		
+		ArrayList list;
+		if (cache.GetValue(key, list))
+			delete list;
+	}
+	delete snapshot;
+	
+	// Finally, clear the cache map
+	cache.Clear();
+}
+
 void RebuildSoundCache()
 {
-	g_SoundCache.Clear();
+	ClearCache(g_SoundCache);
 	
 	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
 	LogMessage("Rebuilding sound cache for %d string table entries", numStrings);
@@ -346,7 +366,7 @@ void RebuildSoundCache()
 
 void RebuildModelCache()
 {
-	g_ModelCache.Clear();
+	ClearCache(g_ModelCache);
 	
 	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
 	LogMessage("Rebuilding model cache for %d string table entries", numStrings);
@@ -587,13 +607,13 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 
 public Action SrvCmd_ClearSoundCache(int args)
 {
-	g_SoundCache.Clear();
+	ClearCache(g_SoundCache);
 	ReplyToCommand(0, "Sound cache successfully cleared!");
 }
 
 public Action SrvCmd_ClearModelCache(int args)
 {
-	g_ModelCache.Clear();
+	ClearCache(g_ModelCache);
 	ReplyToCommand(0, "Model cache successfully cleared!");
 }
 
