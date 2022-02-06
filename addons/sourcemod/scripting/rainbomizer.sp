@@ -186,6 +186,12 @@ public void OnEntityCreated(int entity, const char[] classname)
 		{
 			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
 		}
+		
+		// Allows random cosmetics to be visible
+		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
+		{
+			SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+		}
 	}
 	
 	if (rbm_randomize_entities.BoolValue)
