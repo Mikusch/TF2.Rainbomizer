@@ -100,6 +100,7 @@ StringMap g_ModelCache;
 
 int g_SoundPrecacheTable;
 int g_ModelPrecacheTable;
+int g_ParticleEffectNamesTable;
 
 ConVar rbm_search_path_id;
 ConVar rbm_stringtable_safety_treshold;
@@ -125,6 +126,7 @@ public void OnPluginStart()
 	
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
+	g_ParticleEffectNamesTable = FindStringTable("ParticleEffectNames");
 	
 	RegAdminCmd("rbm_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache");
 	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache");
@@ -220,6 +222,11 @@ public void OnEntityCreated(int entity, const char[] classname)
 		if (StrEqual(classname, "shadow_control"))
 		{
 			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
+		}
+		
+		if (StrEqual(classname, "info_particle_system"))
+		{
+			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ParticleSystemSpawnPost);
 		}
 	}
 }
@@ -684,4 +691,16 @@ public void SDKHookCB_FogControllerSpawnPost(int entity)
 public void SDKHookCB_ShadowControlSpawnPost(int entity)
 {
 	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt());
+}
+
+public void SDKHookCB_ParticleSystemSpawnPost(int entity)
+{
+	int num = GetStringTableNumStrings(g_ParticleEffectNamesTable);
+	int stringidx = GetRandomInt(0, num - 1);
+	
+	char effectName[25];
+	if (GetStringTableEntry(g_ParticleEffectNamesTable, stringidx, effectName, sizeof(effectName)))
+	{
+		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
+	}
 }
