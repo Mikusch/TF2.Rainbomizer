@@ -82,7 +82,7 @@ public void OnPluginStart()
 	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
 	
 	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
-	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.95", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
+	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
 	rbm_randomize_skybox = CreateConVar("rbm_randomize_skybox", "1", "Whether to randomize the skybox texture.");
 	rbm_randomize_sounds = CreateConVar("rbm_randomize_sounds", "1", "Whether to randomize sounds.");
 	rbm_randomize_models = CreateConVar("rbm_randomize_models", "1", "Whether to randomize models");
