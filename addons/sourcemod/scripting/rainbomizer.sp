@@ -97,6 +97,7 @@ char g_SkyNames[][] =
 Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
 StringMap g_ModelCache;
+ArrayList g_BlacklistedSounds;
 
 int g_SoundPrecacheTable;
 int g_ModelPrecacheTable;
@@ -123,6 +124,7 @@ public void OnPluginStart()
 {
 	g_SoundCache = new StringMap();
 	g_ModelCache = new StringMap();
+	g_BlacklistedSounds = new ArrayList(PLATFORM_MAX_PATH);
 	
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
@@ -165,6 +167,28 @@ public void OnPluginStart()
 	{
 		SetFailState("Failed to read rainbomizer gamedata");
 	}
+	
+	// Fetch list of blacklisted sounds
+	char file[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, file, sizeof(file), "configs/rainbomizer/blacklisted_sounds.cfg");
+	
+	KeyValues kv = new KeyValues("Files");
+	if (kv.ImportFromFile(file))
+	{
+		if (kv.GotoFirstSubKey(false))
+		{
+			do
+			{
+				char sound[PLATFORM_MAX_PATH];
+				kv.GetString(NULL_STRING, sound, sizeof(sound));
+				g_BlacklistedSounds.PushString(sound);
+			}
+			while (kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+	delete kv;
 }
 
 public void OnMapStart()
@@ -620,8 +644,12 @@ public bool IterateModels(const char[] file)
 
 public bool IterateSounds(const char[] file)
 {
-	// Filters a few looping sounds
-	if (StrContains(file, "loop") != -1)
+	// Remove "sound/" prefix
+	char copy[PLATFORM_MAX_PATH];
+	strcopy(copy, sizeof(copy), file[6]);
+	
+	// Filter blacklisted sounds (usually endless loops)
+	if (g_BlacklistedSounds.FindString(copy) != -1)
 		return false;
 	
 	return true;
