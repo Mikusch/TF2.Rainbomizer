@@ -1,0 +1,21 @@
+"Phrases"
+{
+	"SoundCache_Clear_Success"
+	{
+		"en"		"Cleared sound cache."
+	}
+	"ModelCache_Clear_Success"
+	{
+		"en"		"Cleared model cache."
+	}
+	"SoundCache_Rebuild_Success"
+	{
+		"#format"	"{1:d}"
+		"en"		"Rebuilt sound cache with {1} files."
+	}
+	"ModelCache_Rebuild_Success"
+	{
+		"#format"	"{1:d}"
+		"en"		"Rebuilt model cache with {1} files."
+	}
+}

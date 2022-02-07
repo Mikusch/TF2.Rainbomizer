@@ -69,6 +69,8 @@ public Plugin pluginInfo =
 
 public void OnPluginStart()
 {
+	LoadTranslations("rainbomizer.phrases");
+	
 	g_SoundCache = new StringMap();
 	g_ModelCache = new StringMap();
 	
@@ -76,10 +78,10 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_ParticleEffectNamesTable = FindStringTable("ParticleEffectNames");
 	
-	RegAdminCmd("rbm_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache");
-	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache");
-	RegAdminCmd("rbm_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache (WARNING: This might hang or crash the server)");
-	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
+	RegAdminCmd("rbm_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache.");
+	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache.");
+	RegAdminCmd("rbm_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache. WARNING: This may hang the server process.");
+	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache. WARNING: This may hang the server process.");
 	
 	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
 	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
@@ -304,7 +306,7 @@ int RebuildSoundCache()
 	ClearCache(g_SoundCache);
 	
 	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
-	LogMessage("Rebuilding sound cache for %d string table entries", numStrings);
+	LogMessage("Rebuilding sound cache for %d string table entries...", numStrings);
 	
 	int total = 0;
 	
@@ -324,12 +326,12 @@ int RebuildSoundCache()
 			if (count > 0)
 			{
 				total += count;
-				LogMessage("Collected %d file(s) for %s", count, filePath);
+				LogMessage("Found %d files for: %s", count, filePath);
 			}
 		}
 	}
 	
-	LogMessage("Successfully rebuilt sound cache with %d file(s)", total);
+	LogMessage("Sound cache has been rebuilt with %d files.", total);
 	return total;
 }
 
@@ -338,7 +340,7 @@ int RebuildModelCache()
 	ClearCache(g_ModelCache);
 	
 	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
-	LogMessage("Rebuilding model cache for %d string table entries", numStrings);
+	LogMessage("Rebuilding model cache for %d string table entries...", numStrings);
 	
 	int total = 0;
 	
@@ -366,12 +368,12 @@ int RebuildModelCache()
 			if (count > 0)
 			{
 				total += count;
-				LogMessage("Collected %d file(s) for %s", count, filePath);
+				LogMessage("Found %d files for: %s", count, filePath);
 			}
 		}
 	}
 	
-	LogMessage("Successfully rebuilt model cache with %d file(s)", total);
+	LogMessage("Model cache has been rebuilt with %d files.", total);
 	return total;
 }
 
@@ -638,25 +640,25 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 public Action ConCmd_ClearSoundCache(int client, int args)
 {
 	ClearCache(g_SoundCache);
-	ShowActivity(client, "Cleared sound cache");
+	ShowActivity(client, "%t", "SoundCache_Clear_Success");
 }
 
 public Action ConCmd_ClearModelCache(int client, int args)
 {
 	ClearCache(g_ModelCache);
-	ShowActivity(client, "Cleared model cache");
+	ShowActivity(client, "%t", "ModelCache_Clear_Success");
 }
 
 public Action ConCmd_RebuildSoundCache(int client, int args)
 {
 	int total = RebuildSoundCache();
-	ShowActivity(client, "Rebuilt sound cache with %d file(s)", total);
+	ShowActivity(client, "%t", "SoundCache_Rebuild_Success", total);
 }
 
 public Action ConCmd_RebuildModelCache(int client, int args)
 {
 	int total = RebuildModelCache();
-	ShowActivity(client, "Rebuilt model cache with %d file(s)", total);
+	ShowActivity(client, "%t", "ModelCache_Rebuild_Success", total);
 }
 
 public void SDKHookCB_LightSpawnPost(int entity)
