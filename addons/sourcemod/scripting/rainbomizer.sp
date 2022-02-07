@@ -620,7 +620,10 @@ public bool IterateModels(const char[] file)
 
 public bool IterateSounds(const char[] file)
 {
-	// No special filtering for sounds
+	// Filters a few looping sounds
+	if (StrContains(file, "loop") != -1)
+		return false;
+	
 	return true;
 }
 
