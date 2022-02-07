@@ -39,65 +39,12 @@ typeset FileIterator
 	function bool(const char[] file);
 }
 
-char g_Playermodels[][] =
-{
-	"models/bots/headless_hatman.mdl",
-	"models/bots/skeleton_sniper/skeleton_sniper.mdl",
-	"models/bots/skeleton_sniper_boss/skeleton_sniper_boss.mdl",
-	"models/bots/merasmus/merasmus.mdl",
-	"models/bots/demo/bot_demo.mdl",
-	"models/bots/demo/bot_sentry_buster.mdl",
-	"models/bots/engineer/bot_engineer.mdl",
-	"models/bots/heavy/bot_heavy.mdl",
-	"models/bots/medic/bot_medic.mdl",
-	"models/bots/pyro/bot_pyro.mdl",
-	"models/bots/scout/bot_scout.mdl",
-	"models/bots/sniper/bot_sniper.mdl",
-	"models/bots/soldier/bot_soldier.mdl",
-	"models/bots/spy/bot_spy.mdl",
-	"models/player/demo.mdl",
-	"models/player/engineer.mdl",
-	"models/player/heavy.mdl",
-	"models/player/medic.mdl",
-	"models/player/pyro.mdl",
-	"models/player/scout.mdl",
-	"models/player/sniper.mdl",
-	"models/player/soldier.mdl",
-	"models/player/spy.mdl",
-	"models/player/items/taunts/yeti/yeti.mdl",
-};
-
-// Skybox names (excluding Pyrovision skyboxes)
-char g_SkyNames[][] =
-{
-	"sky_alpinestorm_01",
-	"sky_badlands_01",
-	"sky_dustbowl_01",
-	"sky_goldrush_01",
-	"sky_granary_01",
-	"sky_gravel_01",
-	"sky_halloween",
-	"sky_halloween_night2014_01",
-	"sky_halloween_night_01",
-	"sky_harvest_01",
-	"sky_harvest_night_01",
-	"sky_hydro_01",
-	"sky_island_01",
-	"sky_morningsnow_01",
-	"sky_night_01",
-	"sky_nightfall_01",
-	"sky_rainbow_01",
-	"sky_stormfront_01",
-	"sky_tf2_04",
-	"sky_trainyard_01",
-	"sky_upward",
-	"sky_well_01",
-};
-
 Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
 StringMap g_ModelCache;
 ArrayList g_BlacklistedSounds;
+ArrayList g_PlayerModels;
+ArrayList g_SkyNames;
 
 int g_SoundPrecacheTable;
 int g_ModelPrecacheTable;
@@ -124,7 +71,6 @@ public void OnPluginStart()
 {
 	g_SoundCache = new StringMap();
 	g_ModelCache = new StringMap();
-	g_BlacklistedSounds = new ArrayList(PLATFORM_MAX_PATH);
 	
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
@@ -134,8 +80,6 @@ public void OnPluginStart()
 	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache");
 	RegAdminCmd("rbm_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache (WARNING: This might hang or crash the server)");
 	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
-	
-	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
 	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
 	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.95", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
@@ -147,48 +91,24 @@ public void OnPluginStart()
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
+	HookEvent("post_inventory_application", Event_PostInventoryApplication);
+	
+	ReadFileList("configs/rainbomizer/blacklisted_sounds.cfg", g_BlacklistedSounds);
+	ReadFileList("configs/rainbomizer/playermodels.cfg", g_PlayerModels);
+	ReadFileList("configs/rainbomizer/skynames.cfg", g_SkyNames);
+	
 	GameData gamedata = new GameData("rainbomizer");
-	if (gamedata)
-	{
-		StartPrepSDKCall(SDKCall_Player);
-		if (PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTFPlayer::EquipWearable"))
-		{
-			PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-			g_SDKCallEquipWearable = EndPrepSDKCall();
-		}
-		else
-		{
-			SetFailState("Failed to create SDK call: CTFPlayer::EquipWearable");
-		}
-		
-		delete gamedata;
-	}
-	else
-	{
+	if (!gamedata)
 		SetFailState("Failed to read rainbomizer gamedata");
-	}
 	
-	// Fetch list of blacklisted sounds
-	char file[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, file, sizeof(file), "configs/rainbomizer/blacklisted_sounds.cfg");
+	StartPrepSDKCall(SDKCall_Player);
+	if (!PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTFPlayer::EquipWearable"))
+		SetFailState("Failed to create SDK call: CTFPlayer::EquipWearable");
 	
-	KeyValues kv = new KeyValues("Files");
-	if (kv.ImportFromFile(file))
-	{
-		if (kv.GotoFirstSubKey(false))
-		{
-			do
-			{
-				char sound[PLATFORM_MAX_PATH];
-				kv.GetString(NULL_STRING, sound, sizeof(sound));
-				g_BlacklistedSounds.PushString(sound);
-			}
-			while (kv.GotoNextKey(false));
-			kv.GoBack();
-		}
-		kv.GoBack();
-	}
-	delete kv;
+	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+	g_SDKCallEquipWearable = EndPrepSDKCall();
+	
+	delete gamedata;
 }
 
 public void OnMapStart()
@@ -197,9 +117,11 @@ public void OnMapStart()
 	ClearCache(g_SoundCache);
 	ClearCache(g_ModelCache);
 	
-	if (rbm_randomize_skybox.BoolValue)
+	if (rbm_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
 	{
-		DispatchKeyValue(0, "skyname", g_SkyNames[GetRandomInt(0, sizeof(g_SkyNames) - 1)]);
+		char skyname[64];
+		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
+		DispatchKeyValue(0, "skyname", skyname);
 	}
 }
 
@@ -655,15 +577,47 @@ public bool IterateSounds(const char[] file)
 	return true;
 }
 
+void ReadFileList(const char[] file, ArrayList &list)
+{
+	list = new ArrayList(PLATFORM_MAX_PATH);
+	
+	// Build path
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), file);
+	
+	// Iterate file list
+	KeyValues kv = new KeyValues("Files");
+	if (kv.ImportFromFile(path))
+	{
+		if (kv.GotoFirstSubKey(false))
+		{
+			do
+			{
+				char sound[PLATFORM_MAX_PATH];
+				kv.GetString(NULL_STRING, sound, sizeof(sound));
+				list.PushString(sound);
+			}
+			while (kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+	else
+	{
+		LogError("Failed to find configuration file %s", file);
+	}
+	delete kv;
+}
+
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!rbm_randomize_playermodels.BoolValue)
+	if (!rbm_randomize_playermodels.BoolValue || g_PlayerModels.Length == 0)
 		return;
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	
 	char model[PLATFORM_MAX_PATH];
-	strcopy(model, sizeof(model), g_Playermodels[GetRandomInt(0, sizeof(g_Playermodels) - 1)]);
+	g_PlayerModels.GetString(GetRandomInt(0, g_PlayerModels.Length - 1), model, sizeof(model));
 	
 	Handle item = TF2Items_CreateItem(OVERRIDE_ALL | FORCE_GENERATION);
 	TF2Items_SetClassname(item, "tf_wearable");
