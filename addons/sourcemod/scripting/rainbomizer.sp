@@ -50,13 +50,13 @@ int g_SoundPrecacheTable;
 int g_ModelPrecacheTable;
 int g_ParticleEffectNamesTable;
 
-ConVar rbm_search_path_id;
-ConVar rbm_stringtable_safety_treshold;
-ConVar rbm_randomize_skybox;
-ConVar rbm_randomize_sounds;
-ConVar rbm_randomize_models;
-ConVar rbm_randomize_playermodels;
-ConVar rbm_randomize_entities;
+ConVar rbmz_search_path_id;
+ConVar rbmz_stringtable_safety_treshold;
+ConVar rbmz_randomize_skybox;
+ConVar rbmz_randomize_sounds;
+ConVar rbmz_randomize_models;
+ConVar rbmz_randomize_playermodels;
+ConVar rbmz_randomize_entities;
 
 public Plugin pluginInfo =
 {
@@ -78,18 +78,18 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_ParticleEffectNamesTable = FindStringTable("ParticleEffectNames");
 	
-	RegAdminCmd("rbm_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache.");
-	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache.");
-	RegAdminCmd("rbm_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache. WARNING: This may hang the server process.");
-	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache. WARNING: This may hang the server process.");
+	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache.");
+	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache.");
+	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache. WARNING: This may hang the server process.");
+	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache. WARNING: This may hang the server process.");
 	
-	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
-	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
-	rbm_randomize_skybox = CreateConVar("rbm_randomize_skybox", "1", "Whether to randomize the skybox texture.");
-	rbm_randomize_sounds = CreateConVar("rbm_randomize_sounds", "1", "Whether to randomize sounds.");
-	rbm_randomize_models = CreateConVar("rbm_randomize_models", "1", "Whether to randomize models");
-	rbm_randomize_playermodels = CreateConVar("rbm_randomize_playermodels", "1", "Randomize player models?");
-	rbm_randomize_entities = CreateConVar("rbm_randomize_entities", "1", "Whether to randomize map entity properties such as light and fog color.");
+	rbmz_search_path_id = CreateConVar("rbmz_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
+	rbmz_stringtable_safety_treshold = CreateConVar("rbmz_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
+	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "Whether to randomize the skybox texture.");
+	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "Whether to randomize sounds.");
+	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "Whether to randomize models");
+	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "Randomize player models?");
+	rbmz_randomize_entities = CreateConVar("rbmz_randomize_entities", "1", "Whether to randomize map entity properties such as light and fog color.");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
@@ -119,7 +119,7 @@ public void OnMapStart()
 	ClearCache(g_SoundCache);
 	ClearCache(g_ModelCache);
 	
-	if (rbm_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
+	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
 	{
 		char skyname[64];
 		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
@@ -129,7 +129,7 @@ public void OnMapStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (rbm_randomize_models.BoolValue)
+	if (rbmz_randomize_models.BoolValue)
 	{
 		// Check if this entity is a non-player CBaseAnimating
 		if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation"))
@@ -144,7 +144,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		}
 	}
 	
-	if (rbm_randomize_entities.BoolValue)
+	if (rbmz_randomize_entities.BoolValue)
 	{
 		// Randomize light colors
 		if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
@@ -181,7 +181,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
-	if (!rbm_randomize_sounds.BoolValue)
+	if (!rbmz_randomize_sounds.BoolValue)
 		return Plugin_Continue;
 	
 	char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
@@ -463,14 +463,14 @@ bool CanAddToStringTable(int tableidx)
 	// If the string table is getting full, do not add to it
 	int num = GetStringTableNumStrings(tableidx);
 	int max = GetStringTableMaxStrings(tableidx);
-	return float(num) / float(max) < rbm_stringtable_safety_treshold.FloatValue;
+	return float(num) / float(max) < rbmz_stringtable_safety_treshold.FloatValue;
 }
 
 void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIterator callback)
 {
 	// Grab path ID
 	char pathId[16];
-	rbm_search_path_id.GetString(pathId, sizeof(pathId));
+	rbmz_search_path_id.GetString(pathId, sizeof(pathId));
 	
 	// Search the directory we are trying to randomize
 	DirectoryListing directoryListing = OpenDirectory(directory, true, pathId);
@@ -613,7 +613,7 @@ void ReadFileList(const char[] file, ArrayList &list)
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!rbm_randomize_playermodels.BoolValue || g_PlayerModels.Length == 0)
+	if (!rbmz_randomize_playermodels.BoolValue || g_PlayerModels.Length == 0)
 		return;
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
