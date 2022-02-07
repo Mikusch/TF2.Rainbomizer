@@ -98,8 +98,8 @@ Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
 StringMap g_ModelCache;
 
-int g_ModelPrecacheTable;
 int g_SoundPrecacheTable;
+int g_ModelPrecacheTable;
 
 ConVar rbm_search_path_id;
 ConVar rbm_stringtable_safety_treshold;
@@ -109,7 +109,7 @@ ConVar rbm_randomize_models;
 ConVar rbm_randomize_playermodels;
 ConVar rbm_randomize_entities;
 
-public Plugin pluginInfo = 
+public Plugin pluginInfo =
 {
 	name = "[TF2] Rainbomizer",
 	author = "Mikusch",
@@ -123,23 +123,23 @@ public void OnPluginStart()
 	g_SoundCache = new StringMap();
 	g_ModelCache = new StringMap();
 	
-	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
+	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	
 	RegServerCmd("rbm_clearsoundcache", SrvCmd_ClearSoundCache, "Clears the internal sound cache");
 	RegServerCmd("rbm_clearmodelcache", SrvCmd_ClearModelCache, "Clears the internal model cache");
-	RegServerCmd("rbm_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache");
-	RegServerCmd("rbm_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache");
+	RegServerCmd("rbm_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache (WARNING: This might hang or crash the server)");
+	RegServerCmd("rbm_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
-	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to load assets.");
-	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.95", "Stop loading assets when string tables are this full (in percent).");
-	rbm_randomize_skybox = CreateConVar("rbm_randomize_skybox", "1", "Randomize skybox?");
-	rbm_randomize_sounds = CreateConVar("rbm_randomize_sounds", "1", "Randomize sounds?");
-	rbm_randomize_models = CreateConVar("rbm_randomize_models", "1", "Randomize models?");
+	rbm_search_path_id = CreateConVar("rbm_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
+	rbm_stringtable_safety_treshold = CreateConVar("rbm_stringtable_safety_treshold", "0.95", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
+	rbm_randomize_skybox = CreateConVar("rbm_randomize_skybox", "1", "Whether to randomize the skybox texture.");
+	rbm_randomize_sounds = CreateConVar("rbm_randomize_sounds", "1", "Whether to randomize sounds.");
+	rbm_randomize_models = CreateConVar("rbm_randomize_models", "1", "Whether to randomize models");
 	rbm_randomize_playermodels = CreateConVar("rbm_randomize_playermodels", "1", "Randomize player models?");
-	rbm_randomize_entities = CreateConVar("rbm_randomize_entities", "1", "Randomize map entity properties?");
+	rbm_randomize_entities = CreateConVar("rbm_randomize_entities", "1", "Whether to randomize map entity properties such as light and fog color.");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
@@ -168,8 +168,8 @@ public void OnPluginStart()
 public void OnMapStart()
 {
 	// String tables get cleared on level start, clear our cache
-	g_SoundCache.Clear();
-	g_ModelCache.Clear();
+	ClearCache(g_SoundCache);
+	ClearCache(g_ModelCache);
 	
 	if (rbm_randomize_skybox.BoolValue)
 	{
@@ -358,10 +358,7 @@ void RebuildSoundCache()
 	for (int i = 0; i < numStrings; i++)
 	{
 		char sound[PLATFORM_MAX_PATH];
-		ReadStringTable(g_SoundPrecacheTable, i, sound, sizeof(sound));
-		
-		// Ignore empty string table entries
-		if (sound[0] == '\0')
+		if (!GetStringTableEntry(g_SoundPrecacheTable, i, sound, sizeof(sound)))
 			continue;
 		
 		char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
@@ -369,10 +366,17 @@ void RebuildSoundCache()
 		
 		ArrayList sounds;
 		if (!g_SoundCache.GetValue(filePath, sounds))
-			total += CollectSounds(filePath, soundPath, sounds);
+		{
+			int count = CollectSounds(filePath, soundPath, sounds);
+			if (count > 0)
+			{
+				total += count;
+				LogMessage("Collected %d file(s) for %s", count, filePath);
+			}
+		}
 	}
 	
-	LogMessage("Rebuilt sound cache with %d files", total);
+	LogMessage("Successfully rebuilt sound cache with %d file(s)", total);
 }
 
 void RebuildModelCache()
@@ -387,10 +391,7 @@ void RebuildModelCache()
 	for (int i = 0; i < numStrings; i++)
 	{
 		char model[PLATFORM_MAX_PATH];
-		ReadStringTable(g_ModelPrecacheTable, i, model, sizeof(model));
-		
-		// Ignore empty string table entries
-		if (model[0] == '\0')
+		if (!GetStringTableEntry(g_ModelPrecacheTable, i, model, sizeof(model)))
 			continue;
 		
 		// Ignore non-studio models
@@ -406,10 +407,17 @@ void RebuildModelCache()
 		
 		ArrayList models;
 		if (!g_ModelCache.GetValue(filePath, models))
-			total += CollectSounds(filePath, filePath, models);
+		{
+			int count = CollectModels(filePath, models);
+			if (count > 0)
+			{
+				total += count;
+				LogMessage("Collected %d file(s) for %s", count, filePath);
+			}
+		}
 	}
 	
-	LogMessage("Rebuilt model cache with %d files", total);
+	LogMessage("Successfully rebuilt model cache with %d file(s)", total);
 }
 
 int CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
@@ -431,13 +439,31 @@ int CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sou
 	return sounds.Length;
 }
 
-void CollectModels(const char[] directory, ArrayList &models)
+int CollectModels(const char[] directory, ArrayList &models)
 {
 	models = new ArrayList(PLATFORM_MAX_PATH);
 	IterateDirectoryRecursive(directory, models, IterateModels);
 	
 	// Add fetched models to cache
 	g_ModelCache.SetValue(directory, models);
+	return models.Length;
+}
+
+bool GetStringTableEntry(int tableidx, int stringidx, char[] str, int maxlength)
+{
+	if (ReadStringTable(tableidx, stringidx, str, maxlength) > 0)
+	{
+		// Ignore empty entries
+		if (str[0] == '\0')
+			return false;
+		
+		// Fix up Windows paths
+		ReplaceString(str, maxlength, "\\", "/");
+		
+		return true;
+	}
+	
+	return false;
 }
 
 void GetPreviousDirectoryPath(char[] directory, int levels = 1)
@@ -602,8 +628,7 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	Handle item = TF2Items_CreateItem(OVERRIDE_ALL | FORCE_GENERATION);
 	TF2Items_SetClassname(item, "tf_wearable");
 	TF2Items_SetItemIndex(item, 8938);
-	TF2Items_SetQuality(item, 6);
-	TF2Items_SetLevel(item, 1);
+	TF2Items_SetLevel(item, GetRandomInt(1, 100));
 	
 	int wearable = TF2Items_GiveNamedItem(client, item);
 	
@@ -613,7 +638,7 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	
 	SetEntProp(client, Prop_Send, "m_nRenderFX", 6);
 	SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
-	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", 1);
+	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
 }
 
 public Action SrvCmd_ClearSoundCache(int args)
