@@ -126,10 +126,10 @@ public void OnPluginStart()
 	g_SoundPrecacheTable = FindStringTable("soundprecache");
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	
-	RegServerCmd("rbm_clearsoundcache", SrvCmd_ClearSoundCache, "Clears the internal sound cache");
-	RegServerCmd("rbm_clearmodelcache", SrvCmd_ClearModelCache, "Clears the internal model cache");
-	RegServerCmd("rbm_rebuildsoundcache", SrvCmd_RebuildSoundCache, "Rebuilds the internal sound cache (WARNING: This might hang or crash the server)");
-	RegServerCmd("rbm_rebuildmodelcache", SrvCmd_RebuildModelCache, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
+	RegAdminCmd("rbm_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache");
+	RegAdminCmd("rbm_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache");
+	RegAdminCmd("rbm_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache (WARNING: This might hang or crash the server)");
+	RegAdminCmd("rbm_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache (WARNING: This might hang or crash the server)");
 	
 	HookEvent("post_inventory_application", Event_PostInventoryApplication);
 	
@@ -346,7 +346,7 @@ void ClearCache(StringMap cache)
 	cache.Clear();
 }
 
-void RebuildSoundCache()
+int RebuildSoundCache()
 {
 	ClearCache(g_SoundCache);
 	
@@ -377,9 +377,10 @@ void RebuildSoundCache()
 	}
 	
 	LogMessage("Successfully rebuilt sound cache with %d file(s)", total);
+	return total;
 }
 
-void RebuildModelCache()
+int RebuildModelCache()
 {
 	ClearCache(g_ModelCache);
 	
@@ -418,6 +419,7 @@ void RebuildModelCache()
 	}
 	
 	LogMessage("Successfully rebuilt model cache with %d file(s)", total);
+	return total;
 }
 
 int CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sounds)
@@ -641,28 +643,28 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
 }
 
-public Action SrvCmd_ClearSoundCache(int args)
+public Action ConCmd_ClearSoundCache(int client, int args)
 {
 	ClearCache(g_SoundCache);
-	ReplyToCommand(0, "Sound cache successfully cleared!");
+	ShowActivity(client, "Cleared sound cache");
 }
 
-public Action SrvCmd_ClearModelCache(int args)
+public Action ConCmd_ClearModelCache(int client, int args)
 {
 	ClearCache(g_ModelCache);
-	ReplyToCommand(0, "Model cache successfully cleared!");
+	ShowActivity(client, "Cleared model cache");
 }
 
-public Action SrvCmd_RebuildSoundCache(int args)
+public Action ConCmd_RebuildSoundCache(int client, int args)
 {
-	RebuildSoundCache();
-	ReplyToCommand(0, "Sound cache successfully rebuilt!");
+	int total = RebuildSoundCache();
+	ShowActivity(client, "Rebuilt sound cache with %d file(s)", total);
 }
 
-public Action SrvCmd_RebuildModelCache(int args)
+public Action ConCmd_RebuildModelCache(int client, int args)
 {
-	RebuildModelCache();
-	ReplyToCommand(0, "Model cache successfully rebuilt!");
+	int total = RebuildModelCache();
+	ShowActivity(client, "Rebuilt model cache with %d file(s)", total);
 }
 
 public void SDKHookCB_LightSpawnPost(int entity)
