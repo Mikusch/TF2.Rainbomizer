@@ -711,7 +711,7 @@ public void SDKHookCB_ParticleSystemSpawnPost(int entity)
 	int num = GetStringTableNumStrings(g_ParticleEffectNamesTable);
 	int stringidx = GetRandomInt(0, num - 1);
 	
-	char effectName[25];
+	char effectName[256];
 	if (GetStringTableEntry(g_ParticleEffectNamesTable, stringidx, effectName, sizeof(effectName)))
 	{
 		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
