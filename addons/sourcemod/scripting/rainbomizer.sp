@@ -46,10 +46,12 @@ ArrayList g_BlacklistedSounds;
 ArrayList g_PlayerModels;
 ArrayList g_SkyNames;
 
+bool g_Enabled;
 int g_SoundPrecacheTable;
 int g_ModelPrecacheTable;
 int g_ParticleEffectNamesTable;
 
+ConVar rbmz_enabled;
 ConVar rbmz_search_path_id;
 ConVar rbmz_stringtable_safety_treshold;
 ConVar rbmz_randomize_skybox;
@@ -62,7 +64,7 @@ public Plugin pluginInfo =
 {
 	name = "[TF2] Rainbomizer",
 	author = "Mikusch",
-	description = "A visual randomizer for Team Fortress 2",
+	description = "A visual and auditory randomizer for Team Fortress 2",
 	version = "1.0.0",
 	url = "https://github.com/Mikusch/TF2.Rainbomizer"
 };
@@ -82,6 +84,10 @@ public void OnPluginStart()
 	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the model cache.");
 	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Clears the sound cache and then fully rebuilds it.");
 	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Clears the model cache and then fully rebuilds it.");
+	
+	rbmz_enabled = CreateConVar("rbmz_enabled", "1", "When set, the plugin will be enabled.");
+	rbmz_enabled.AddChangeHook(ConVarChanged_Enabled);
+	g_Enabled = rbmz_enabled.BoolValue;
 	
 	rbmz_search_path_id = CreateConVar("rbmz_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
 	rbmz_search_path_id.AddChangeHook(ConVarChanged_ClearCaches);
@@ -117,22 +123,23 @@ public void OnPluginStart()
 	delete gamedata;
 }
 
-public void OnMapStart()
+public void OnConfigsExecuted()
 {
-	// String tables get cleared on level start, clear our caches
-	ClearCache(g_SoundCache);
-	ClearCache(g_ModelCache);
+	g_Enabled = rbmz_enabled.BoolValue;
 	
-	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
-	{
-		char skyname[64];
-		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
-		DispatchKeyValue(0, "skyname", skyname);
-	}
+	if (!g_Enabled)
+		return;
+	
+	// String tables get cleared on level start, clear our caches
+	ClearAllCaches();
+	RandomizeSky();
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
+	if (!g_Enabled)
+		return;
+	
 	if (rbmz_randomize_models.BoolValue)
 	{
 		// Check if this entity is a non-player CBaseAnimating
@@ -185,6 +192,9 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
+	if (!g_Enabled)
+		return Plugin_Continue;
+	
 	if (!rbmz_randomize_sounds.BoolValue)
 		return Plugin_Continue;
 	
@@ -285,6 +295,16 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	}
 }
 
+void RandomizeSky()
+{
+	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
+	{
+		char skyname[64];
+		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
+		DispatchKeyValue(0, "skyname", skyname);
+	}
+}
+
 void ClearCache(StringMap cache)
 {
 	// Delete all contained lists in the map
@@ -303,6 +323,12 @@ void ClearCache(StringMap cache)
 	
 	// Finally, clear the cache map
 	cache.Clear();
+}
+
+void ClearAllCaches()
+{
+	ClearCache(g_SoundCache);
+	ClearCache(g_ModelCache);
 }
 
 int RebuildSoundCache()
@@ -617,6 +643,9 @@ void ReadFileList(const char[] file, ArrayList &list)
 
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!g_Enabled)
+		return;
+	
 	if (!rbmz_randomize_playermodels.BoolValue || g_PlayerModels.Length == 0)
 		return;
 	
@@ -641,10 +670,20 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
 }
 
+public void ConVarChanged_Enabled(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	g_Enabled = convar.BoolValue;
+	
+	if (!g_Enabled)
+		ClearAllCaches();
+	
+	// Restart the round to reset entities
+	ServerCommand("mp_restartgame_immediate 1");
+}
+
 public void ConVarChanged_ClearCaches(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	ClearCache(g_SoundCache);
-	ClearCache(g_ModelCache);
+	ClearAllCaches();
 }
 
 public void ConVarChanged_RandomizeSounds(ConVar convar, const char[] oldValue, const char[] newValue)

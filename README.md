@@ -22,6 +22,7 @@ Inspired by [Rainbomizer: V](https://github.com/Parik27/V.Rainbomizer), a simila
 
 ## Configuration
 
+* **`rbmz_enabled` (def. `1`)** - When set, the plugin will be enabled.
 * **`rbmz_search_path_id` (def. `MOD`)** - The search path from gameinfo.txt used to find files.
     * When set to `GAME`, the plugin will scan all Source Engine paths. When set to `MOD`, it will only search mod-specific paths.
     * This can be useful if you want to include HL2 assets in the randomization.
