@@ -78,18 +78,22 @@ public void OnPluginStart()
 	g_ModelPrecacheTable = FindStringTable("modelprecache");
 	g_ParticleEffectNamesTable = FindStringTable("ParticleEffectNames");
 	
-	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the internal sound cache.");
-	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the internal model cache.");
-	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Rebuilds the internal sound cache. WARNING: This may hang the server process.");
-	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Rebuilds the internal model cache. WARNING: This may hang the server process.");
+	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the sound cache.");
+	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the model cache.");
+	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Clears the sound cache and then fully rebuilds it.");
+	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Clears the model cache and then fully rebuilds it.");
 	
 	rbmz_search_path_id = CreateConVar("rbmz_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
-	rbmz_stringtable_safety_treshold = CreateConVar("rbmz_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in percent). Setting this to 0 will disable precaching of new assets.", _, true, 0.0, true, 1.0);
-	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "Whether to randomize the skybox texture.");
-	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "Whether to randomize sounds.");
-	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "Whether to randomize models");
-	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "Randomize player models?");
-	rbmz_randomize_entities = CreateConVar("rbmz_randomize_entities", "1", "Whether to randomize map entity properties such as light and fog color.");
+	rbmz_search_path_id.AddChangeHook(ConVarChanged_ClearCaches);
+	rbmz_stringtable_safety_treshold = CreateConVar("rbmz_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in %).", _, true, 0.0, true, 1.0);
+	rbmz_stringtable_safety_treshold.AddChangeHook(ConVarChanged_ClearCaches);
+	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "When set, the skybox texture will be randomized.");
+	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "When set, sounds will be randomized.");
+	rbmz_randomize_sounds.AddChangeHook(ConVarChanged_RandomizeSounds);
+	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "When set, models will be randomized.");
+	rbmz_randomize_models.AddChangeHook(ConVarChanged_RandomizeModels);
+	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "When set, player models will be randomized.");
+	rbmz_randomize_entities = CreateConVar("rbmz_randomize_entities", "1", "When set, map entity properties will be randomized.");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
@@ -115,7 +119,7 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-	// String tables get cleared on level start, clear our cache
+	// String tables get cleared on level start, clear our caches
 	ClearCache(g_SoundCache);
 	ClearCache(g_ModelCache);
 	
@@ -635,6 +639,28 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 	SetEntProp(client, Prop_Send, "m_nRenderFX", 6);
 	SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
 	SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
+}
+
+public void ConVarChanged_ClearCaches(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	ClearCache(g_SoundCache);
+	ClearCache(g_ModelCache);
+}
+
+public void ConVarChanged_RandomizeSounds(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!convar.BoolValue)
+	{
+		ClearCache(g_SoundCache);
+	}
+}
+
+public void ConVarChanged_RandomizeModels(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!convar.BoolValue)
+	{
+		ClearCache(g_ModelCache);
+	}
 }
 
 public Action ConCmd_ClearSoundCache(int client, int args)
