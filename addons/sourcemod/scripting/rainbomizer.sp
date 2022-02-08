@@ -738,6 +738,7 @@ public void SDKHookCB_FogControllerSpawnPost(int entity)
 {
 	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt());
 	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt());
+	SetEntProp(entity, Prop_Data, "m_fog.blend", true);
 }
 
 public void SDKHookCB_ShadowControlSpawnPost(int entity)
