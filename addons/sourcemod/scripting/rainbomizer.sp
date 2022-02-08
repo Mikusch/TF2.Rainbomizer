@@ -39,6 +39,7 @@ typeset FileIterator
 	function bool(const char[] file);
 }
 
+// Global handles
 Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
 StringMap g_ModelCache;
@@ -46,11 +47,13 @@ ArrayList g_BlacklistedSounds;
 ArrayList g_PlayerModels;
 ArrayList g_SkyNames;
 
-bool g_Enabled;
-int g_SoundPrecacheTable;
-int g_ModelPrecacheTable;
-int g_ParticleEffectNamesTable;
+// Other globals
+bool g_IsEnabled;
+int g_SoundPrecacheTableIdx;
+int g_ModelPrecacheTableIdx;
+int g_ParticleEffectNamesTableIdx;
 
+// ConVars
 ConVar rbmz_enabled;
 ConVar rbmz_search_path_id;
 ConVar rbmz_stringtable_safety_treshold;
@@ -76,9 +79,9 @@ public void OnPluginStart()
 	g_SoundCache = new StringMap();
 	g_ModelCache = new StringMap();
 	
-	g_SoundPrecacheTable = FindStringTable("soundprecache");
-	g_ModelPrecacheTable = FindStringTable("modelprecache");
-	g_ParticleEffectNamesTable = FindStringTable("ParticleEffectNames");
+	g_SoundPrecacheTableIdx = FindStringTable("soundprecache");
+	g_ModelPrecacheTableIdx = FindStringTable("modelprecache");
+	g_ParticleEffectNamesTableIdx = FindStringTable("ParticleEffectNames");
 	
 	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the sound cache.");
 	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the model cache.");
@@ -87,11 +90,11 @@ public void OnPluginStart()
 	
 	rbmz_enabled = CreateConVar("rbmz_enabled", "1", "When set, the plugin will be enabled.");
 	rbmz_enabled.AddChangeHook(ConVarChanged_Enabled);
-	g_Enabled = rbmz_enabled.BoolValue;
+	g_IsEnabled = rbmz_enabled.BoolValue;
 	
 	rbmz_search_path_id = CreateConVar("rbmz_search_path_id", "MOD", "The search path from gameinfo.txt used to find files.");
 	rbmz_search_path_id.AddChangeHook(ConVarChanged_ClearCaches);
-	rbmz_stringtable_safety_treshold = CreateConVar("rbmz_stringtable_safety_treshold", "0.75", "Stop precaching files when string tables are this full (in %).", _, true, 0.0, true, 1.0);
+	rbmz_stringtable_safety_treshold = CreateConVar("rbmz_stringtable_safety_treshold", "0.75", "Stop precaching new files when string tables are this full (in %).", _, true, 0.0, true, 1.0);
 	rbmz_stringtable_safety_treshold.AddChangeHook(ConVarChanged_ClearCaches);
 	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "When set, the skybox texture will be randomized.");
 	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "When set, sounds will be randomized.");
@@ -125,9 +128,9 @@ public void OnPluginStart()
 
 public void OnConfigsExecuted()
 {
-	g_Enabled = rbmz_enabled.BoolValue;
+	g_IsEnabled = rbmz_enabled.BoolValue;
 	
-	if (!g_Enabled)
+	if (!g_IsEnabled)
 		return;
 	
 	// String tables get cleared on level start, clear our caches
@@ -137,7 +140,7 @@ public void OnConfigsExecuted()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (!g_Enabled)
+	if (!g_IsEnabled)
 		return;
 	
 	if (rbmz_randomize_models.BoolValue)
@@ -168,16 +171,6 @@ public void OnEntityCreated(int entity, const char[] classname)
 			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
 		}
 		
-		if (StrEqual(classname, "env_fog_controller"))
-		{
-			char color[16];
-			Format(color, sizeof(color), "%d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
-			DispatchKeyValue(entity, "fogcolor", color);
-			
-			Format(color, sizeof(color), "%d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
-			DispatchKeyValue(entity, "fogcolor2", color);
-		}
-		
 		if (StrEqual(classname, "shadow_control"))
 		{
 			SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
@@ -192,7 +185,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
-	if (!g_Enabled)
+	if (!g_IsEnabled)
 		return Plugin_Continue;
 	
 	if (!rbmz_randomize_sounds.BoolValue)
@@ -207,7 +200,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	
 	if (sounds && sounds.Length > 0)
 	{
-		if (CanAddToStringTable(g_SoundPrecacheTable))
+		if (CanAddToStringTable(g_SoundPrecacheTableIdx))
 		{
 			sounds.GetString(GetRandomInt(0, sounds.Length - 1), sample, sizeof(sample));
 			PrecacheSound(sample);
@@ -222,7 +215,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 			{
 				sounds.GetString(i, sound, sizeof(sound));
 				
-				if (FindStringIndex(g_SoundPrecacheTable, sound) == INVALID_STRING_INDEX)
+				if (FindStringIndex(g_SoundPrecacheTableIdx, sound) == INVALID_STRING_INDEX)
 					sounds.Erase(i--);
 			}
 			
@@ -260,7 +253,7 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	
 	if (models && models.Length > 0)
 	{
-		if (CanAddToStringTable(g_ModelPrecacheTable))
+		if (CanAddToStringTable(g_ModelPrecacheTableIdx))
 		{
 			models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
 			
@@ -275,7 +268,7 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 			{
 				models.GetString(i, model, sizeof(model));
 				
-				if (FindStringIndex(g_ModelPrecacheTable, model) == INVALID_STRING_INDEX)
+				if (FindStringIndex(g_ModelPrecacheTableIdx, model) == INVALID_STRING_INDEX)
 					models.Erase(i--);
 			}
 			
@@ -299,7 +292,7 @@ void RandomizeSky()
 {
 	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
 	{
-		char skyname[64];
+		char skyname[PLATFORM_MAX_PATH];
 		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
 		DispatchKeyValue(0, "skyname", skyname);
 	}
@@ -335,7 +328,7 @@ int RebuildSoundCache()
 {
 	ClearCache(g_SoundCache);
 	
-	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTable);
+	int numStrings = GetStringTableNumStrings(g_SoundPrecacheTableIdx);
 	LogMessage("Rebuilding sound cache for %d string table entries...", numStrings);
 	
 	int total = 0;
@@ -343,7 +336,7 @@ int RebuildSoundCache()
 	for (int i = 0; i < numStrings; i++)
 	{
 		char sound[PLATFORM_MAX_PATH];
-		if (!GetStringTableEntry(g_SoundPrecacheTable, i, sound, sizeof(sound)))
+		if (!GetStringTableEntry(g_SoundPrecacheTableIdx, i, sound, sizeof(sound)))
 			continue;
 		
 		char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
@@ -369,7 +362,7 @@ int RebuildModelCache()
 {
 	ClearCache(g_ModelCache);
 	
-	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTable);
+	int numStrings = GetStringTableNumStrings(g_ModelPrecacheTableIdx);
 	LogMessage("Rebuilding model cache for %d string table entries...", numStrings);
 	
 	int total = 0;
@@ -377,7 +370,7 @@ int RebuildModelCache()
 	for (int i = 0; i < numStrings; i++)
 	{
 		char model[PLATFORM_MAX_PATH];
-		if (!GetStringTableEntry(g_ModelPrecacheTable, i, model, sizeof(model)))
+		if (!GetStringTableEntry(g_ModelPrecacheTableIdx, i, model, sizeof(model)))
 			continue;
 		
 		// Ignore non-studio models
@@ -538,6 +531,38 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 	delete directoryListing;
 }
 
+void ReadFileList(const char[] file, ArrayList &list)
+{
+	list = new ArrayList(PLATFORM_MAX_PATH);
+	
+	// Build path
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), file);
+	
+	// Iterate file list
+	KeyValues kv = new KeyValues("Files");
+	if (kv.ImportFromFile(path))
+	{
+		if (kv.GotoFirstSubKey(false))
+		{
+			do
+			{
+				char sound[PLATFORM_MAX_PATH];
+				kv.GetString(NULL_STRING, sound, sizeof(sound));
+				list.PushString(sound);
+			}
+			while (kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+	else
+	{
+		LogError("Failed to find configuration file %s", file);
+	}
+	delete kv;
+}
+
 stock bool IsSoundChar(char c)
 {
 	bool b;
@@ -609,41 +634,9 @@ public bool IterateSounds(const char[] file)
 	return true;
 }
 
-void ReadFileList(const char[] file, ArrayList &list)
-{
-	list = new ArrayList(PLATFORM_MAX_PATH);
-	
-	// Build path
-	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), file);
-	
-	// Iterate file list
-	KeyValues kv = new KeyValues("Files");
-	if (kv.ImportFromFile(path))
-	{
-		if (kv.GotoFirstSubKey(false))
-		{
-			do
-			{
-				char sound[PLATFORM_MAX_PATH];
-				kv.GetString(NULL_STRING, sound, sizeof(sound));
-				list.PushString(sound);
-			}
-			while (kv.GotoNextKey(false));
-			kv.GoBack();
-		}
-		kv.GoBack();
-	}
-	else
-	{
-		LogError("Failed to find configuration file %s", file);
-	}
-	delete kv;
-}
-
 public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!g_Enabled)
+	if (!g_IsEnabled)
 		return;
 	
 	if (!rbmz_randomize_playermodels.BoolValue || g_PlayerModels.Length == 0)
@@ -672,9 +665,9 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
 
 public void ConVarChanged_Enabled(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	g_Enabled = convar.BoolValue;
+	g_IsEnabled = convar.BoolValue;
 	
-	if (!g_Enabled)
+	if (!g_IsEnabled)
 		ClearAllCaches();
 	
 	// Restart the round to reset entities
@@ -728,10 +721,7 @@ public Action ConCmd_RebuildModelCache(int client, int args)
 
 public void SDKHookCB_LightSpawnPost(int entity)
 {
-	if (HasEntProp(entity, Prop_Send, "m_clrRender"))
-	{
-		SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt());
-	}
+	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt());
 }
 
 public void SDKHookCB_FogControllerSpawnPost(int entity)
@@ -748,11 +738,11 @@ public void SDKHookCB_ShadowControlSpawnPost(int entity)
 
 public void SDKHookCB_ParticleSystemSpawnPost(int entity)
 {
-	int num = GetStringTableNumStrings(g_ParticleEffectNamesTable);
+	int num = GetStringTableNumStrings(g_ParticleEffectNamesTableIdx);
 	int stringidx = GetRandomInt(0, num - 1);
 	
-	char effectName[256];
-	if (GetStringTableEntry(g_ParticleEffectNamesTable, stringidx, effectName, sizeof(effectName)))
+	char effectName[PLATFORM_MAX_PATH];
+	if (GetStringTableEntry(g_ParticleEffectNamesTableIdx, stringidx, effectName, sizeof(effectName)))
 	{
 		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
 	}
