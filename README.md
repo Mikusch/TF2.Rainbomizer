@@ -1,6 +1,6 @@
 # Rainbomizer: TF2 🌈
 
-<img alt="Rainbomized plr_nightfall" src="https://user-images.githubusercontent.com/25514044/152795195-7dd74150-91ce-406f-91c9-c4f9c5b537c7.jpg" height="512"/>
+<img alt="Rainbomized pl_badwater" src="https://user-images.githubusercontent.com/25514044/153221506-f4941545-e06c-4353-b88b-493ebb8e2218.jpg" height="464"/>
 
 A SourceMod plugin for Team Fortress 2 that randomizes various aspects of the game from sounds to models and the environment. This is purely a visual and auditory randomizer with no gameplay changes.
 
