@@ -405,10 +405,11 @@ int CollectSounds(const char[] directory, const char[] soundPath, ArrayList &sou
 	sounds = new ArrayList(PLATFORM_MAX_PATH);
 	IterateDirectoryRecursive(directory, sounds, IterateSounds);
 	
+	char file[PLATFORM_MAX_PATH];
+	
 	// Replace filepath with sound path and re-add any sound characters we removed
 	for (int j = 0; j < sounds.Length; j++)
 	{
-		char file[PLATFORM_MAX_PATH];
 		sounds.GetString(j, file, sizeof(file));
 		ReplaceString(file, sizeof(file), directory, soundPath);
 		sounds.SetString(j, file);
