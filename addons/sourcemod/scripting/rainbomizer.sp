@@ -615,8 +615,8 @@ public bool IterateModels(const char[] file)
 	if (StrContains(file, ".mdl") == -1)
 		return false;
 	
-	// Exclude all kinds of festivizers
-	if (StrContains(file, "festivizer") != -1 || StrContains(file, "xms") != -1 || StrContains(file, "xmas") != -1)
+	// Exclude festivizers because they pollute weapon randomization
+	if (StrContains(file, "festivizer") != -1 || StrContains(file, "xmas") != -1 || StrContains(file, "xms") != -1)
 		return false;
 	
 	return true;
@@ -627,6 +627,10 @@ public bool IterateSounds(const char[] file)
 	// Remove "sound/" prefix
 	char copy[PLATFORM_MAX_PATH];
 	strcopy(copy, sizeof(copy), file[6]);
+	
+	// Exclude robot vo because it pollutes voice line randomization
+	if (strncmp(copy, "vo/mvm/", 7) == 0)
+		return false;
 	
 	// Filter blacklisted sounds (usually endless loops)
 	if (g_BlacklistedSounds.FindString(copy) != -1)
