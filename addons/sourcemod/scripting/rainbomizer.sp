@@ -704,24 +704,32 @@ public Action ConCmd_ClearSoundCache(int client, int args)
 {
 	ClearCache(g_SoundCache);
 	ShowActivity(client, "%t", "SoundCache_Clear_Success");
+	
+	return Plugin_Handled;
 }
 
 public Action ConCmd_ClearModelCache(int client, int args)
 {
 	ClearCache(g_ModelCache);
 	ShowActivity(client, "%t", "ModelCache_Clear_Success");
+	
+	return Plugin_Handled;
 }
 
 public Action ConCmd_RebuildSoundCache(int client, int args)
 {
 	int total = RebuildSoundCache();
 	ShowActivity(client, "%t", "SoundCache_Rebuild_Success", total);
+	
+	return Plugin_Handled;
 }
 
 public Action ConCmd_RebuildModelCache(int client, int args)
 {
 	int total = RebuildModelCache();
 	ShowActivity(client, "%t", "ModelCache_Rebuild_Success", total);
+	
+	return Plugin_Handled;
 }
 
 public void SDKHookCB_LightSpawnPost(int entity)
