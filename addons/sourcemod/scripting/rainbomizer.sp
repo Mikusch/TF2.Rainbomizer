@@ -83,10 +83,10 @@ public void OnPluginStart()
 	g_ModelPrecacheTableIdx = FindStringTable("modelprecache");
 	g_ParticleEffectNamesTableIdx = FindStringTable("ParticleEffectNames");
 	
-	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_GENERIC, "Clears the sound cache.");
-	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_GENERIC, "Clears the model cache.");
-	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_ROOT, "Clears the sound cache and then fully rebuilds it.");
-	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_ROOT, "Clears the model cache and then fully rebuilds it.");
+	RegAdminCmd("rbmz_clearsoundcache", ConCmd_ClearSoundCache, ADMFLAG_CONVARS, "Clears the sound cache.");
+	RegAdminCmd("rbmz_clearmodelcache", ConCmd_ClearModelCache, ADMFLAG_CONVARS, "Clears the model cache.");
+	RegAdminCmd("rbmz_rebuildsoundcache", ConCmd_RebuildSoundCache, ADMFLAG_CONVARS, "Clears the sound cache and then fully rebuilds it.");
+	RegAdminCmd("rbmz_rebuildmodelcache", ConCmd_RebuildModelCache, ADMFLAG_CONVARS, "Clears the model cache and then fully rebuilds it.");
 	
 	rbmz_enabled = CreateConVar("rbmz_enabled", "1", "When set, the plugin will be enabled.");
 	rbmz_enabled.AddChangeHook(ConVarChanged_Enabled);
