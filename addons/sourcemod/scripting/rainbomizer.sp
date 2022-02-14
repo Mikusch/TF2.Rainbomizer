@@ -59,7 +59,9 @@ ConVar rbmz_search_path_id;
 ConVar rbmz_stringtable_safety_treshold;
 ConVar rbmz_randomize_skybox;
 ConVar rbmz_randomize_sounds;
+ConVar rbmz_randomize_sounds_smart;
 ConVar rbmz_randomize_models;
+ConVar rbmz_randomize_models_smart;
 ConVar rbmz_randomize_playermodels;
 ConVar rbmz_randomize_entities;
 
@@ -99,7 +101,9 @@ public void OnPluginStart()
 	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "When set, the skybox texture will be randomized.");
 	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "When set, sounds will be randomized.");
 	rbmz_randomize_sounds.AddChangeHook(ConVarChanged_RandomizeSounds);
+	rbmz_randomize_sounds_smart = CreateConVar("rbmz_randomize_sounds_smart", "1", "When set, smart sound randomization will be used, which randomizes between sounds of the same type.");
 	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "When set, models will be randomized.");
+	rbmz_randomize_models_smart = CreateConVar("rbmz_randomize_models_smart", "1", "When set, smart model randomization will be used, which randomizes between models of the same type.");
 	rbmz_randomize_models.AddChangeHook(ConVarChanged_RandomizeModels);
 	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "When set, player models will be randomized.");
 	rbmz_randomize_entities = CreateConVar("rbmz_randomize_entities", "1", "When set, map entity properties will be randomized.");
@@ -194,11 +198,15 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	char soundPath[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
 	GetSoundDirectory(sample, soundPath, sizeof(soundPath), filePath, sizeof(filePath));
 	
+	// Get sounds from cache, populating it if it's empty
 	ArrayList sounds;
 	if (!g_SoundCache.GetValue(filePath, sounds))
 		CollectSounds(filePath, soundPath, sounds);
 	
-	if (sounds && sounds.Length > 0)
+	if (!rbmz_randomize_sounds_smart.BoolValue)
+		GetRandomElementFromCache(g_SoundCache, sounds);
+	
+	if (sounds && sounds.Length != 0)
 	{
 		if (CanAddToStringTable(g_SoundPrecacheTableIdx))
 		{
@@ -222,7 +230,7 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 			// Update our cache
 			g_SoundCache.SetValue(filePath, sounds);
 			
-			if (sounds.Length > 0)
+			if (sounds.Length != 0)
 			{
 				// Fetch random string from updated cache
 				sounds.GetString(GetRandomInt(0, sounds.Length - 1), sound, sizeof(sound));
@@ -247,11 +255,15 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	char filePath[PLATFORM_MAX_PATH];
 	GetModelDirectory(model, filePath, sizeof(filePath));
 	
+	// Get models from cache, populating it if it is empty
 	ArrayList models;
 	if (!g_ModelCache.GetValue(filePath, models))
 		CollectModels(filePath, models);
 	
-	if (models && models.Length > 0)
+	if (!rbmz_randomize_models_smart.BoolValue)
+		GetRandomElementFromCache(g_ModelCache, models);
+	
+	if (models && models.Length != 0)
 	{
 		if (CanAddToStringTable(g_ModelPrecacheTableIdx))
 		{
@@ -275,7 +287,7 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 			// Update our cache
 			g_ModelCache.SetValue(filePath, models);
 			
-			if (models.Length > 0)
+			if (models.Length != 0)
 			{
 				// Fetch random string from updated cache
 				models.GetString(GetRandomInt(0, models.Length - 1), model, sizeof(model));
@@ -290,7 +302,7 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 
 void RandomizeSky()
 {
-	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length > 0)
+	if (rbmz_randomize_skybox.BoolValue && g_SkyNames.Length != 0)
 	{
 		char skyname[PLATFORM_MAX_PATH];
 		g_SkyNames.GetString(GetRandomInt(0, g_SkyNames.Length - 1), skyname, sizeof(skyname));
@@ -562,6 +574,20 @@ void ReadFileList(const char[] file, ArrayList &list)
 		LogError("Failed to find configuration file %s", file);
 	}
 	delete kv;
+}
+
+void GetRandomElementFromCache(StringMap cache, ArrayList &list)
+{
+	StringMapSnapshot snapshot = cache.Snapshot();
+	if (snapshot.Length != 0)
+	{
+		int index = GetRandomInt(0, snapshot.Length - 1);
+		int size = snapshot.KeyBufferSize(index);
+		char[] key = new char[size];
+		snapshot.GetKey(index, key, size);
+		cache.GetValue(key, list);
+	}
+	delete snapshot;
 }
 
 stock bool IsSoundChar(char c)

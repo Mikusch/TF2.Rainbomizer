@@ -31,7 +31,9 @@ Inspired by [Rainbomizer: V](https://github.com/Parik27/V.Rainbomizer), a simila
 * **`rbmz_randomize_skybox` (def. `1`)** - When set, the skybox texture will be randomized.
 * **`rbmz_randomize_sounds` (def. `1`)** - When set, sounds will be randomized.
     * This includes voice lines and miscellaneous sounds.
+* **`rbmz_randomize_sounds_smart` (def. `1`)** - When set, smart sound randomization will be used, which randomizes between sounds of the same type.
 * **`rbmz_randomize_models` (def. `1`)** - When set, models will be randomized.
+* **`rbmz_randomize_models_smart` (def. `1`)** - When set, smart model randomization will be used, which randomizes between models of the same type.
 * **`rbmz_randomize_playermodels` (def. `1`)** - When set,player models will be randomized.
 * **`rbmz_randomize_entities` (def. `1`)** - When set, map entity properties will be randomized.
     * This includes lights, fog controllers, and shadow controllers.
