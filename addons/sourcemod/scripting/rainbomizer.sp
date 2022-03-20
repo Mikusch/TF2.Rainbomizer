@@ -59,9 +59,7 @@ ConVar rbmz_search_path_id;
 ConVar rbmz_stringtable_safety_treshold;
 ConVar rbmz_randomize_skybox;
 ConVar rbmz_randomize_sounds;
-ConVar rbmz_randomize_sounds_smart;
 ConVar rbmz_randomize_models;
-ConVar rbmz_randomize_models_smart;
 ConVar rbmz_randomize_playermodels;
 ConVar rbmz_randomize_entities;
 
@@ -101,16 +99,14 @@ public void OnPluginStart()
 	rbmz_randomize_skybox = CreateConVar("rbmz_randomize_skybox", "1", "When set, the skybox texture will be randomized.");
 	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "When set, sounds will be randomized.");
 	rbmz_randomize_sounds.AddChangeHook(ConVarChanged_RandomizeSounds);
-	rbmz_randomize_sounds_smart = CreateConVar("rbmz_randomize_sounds_smart", "1", "When set, smart sound randomization will be used, which randomizes between sounds of the same type.");
 	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "When set, models will be randomized.");
-	rbmz_randomize_models_smart = CreateConVar("rbmz_randomize_models_smart", "1", "When set, smart model randomization will be used, which randomizes between models of the same type.");
 	rbmz_randomize_models.AddChangeHook(ConVarChanged_RandomizeModels);
 	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "When set, player models will be randomized.");
 	rbmz_randomize_entities = CreateConVar("rbmz_randomize_entities", "1", "When set, map entity properties will be randomized.");
 	
 	AddNormalSoundHook(NormalSoundHook);
 	
-	HookEvent("post_inventory_application", Event_PostInventoryApplication);
+	HookEvent("post_inventory_application", EventHook_PostInventoryApplication);
 	
 	ReadFileList("configs/rainbomizer/blacklisted_sounds.cfg", g_BlacklistedSounds);
 	ReadFileList("configs/rainbomizer/playermodels.cfg", g_PlayerModels);
@@ -203,9 +199,6 @@ public Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	if (!g_SoundCache.GetValue(filePath, sounds))
 		CollectSounds(filePath, soundPath, sounds);
 	
-	if (!rbmz_randomize_sounds_smart.BoolValue)
-		GetRandomElementFromCache(g_SoundCache, sounds);
-	
 	if (sounds && sounds.Length != 0)
 	{
 		if (CanAddToStringTable(g_SoundPrecacheTableIdx))
@@ -260,9 +253,6 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	if (!g_ModelCache.GetValue(filePath, models))
 		CollectModels(filePath, models);
 	
-	if (!rbmz_randomize_models_smart.BoolValue)
-		GetRandomElementFromCache(g_ModelCache, models);
-	
 	if (models && models.Length != 0)
 	{
 		if (CanAddToStringTable(g_ModelPrecacheTableIdx))
@@ -310,7 +300,7 @@ void RandomizeSky()
 	}
 }
 
-void ClearCache(StringMap cache)
+void ClearCache(StringMap &cache)
 {
 	// Delete all contained lists in the map
 	StringMapSnapshot snapshot = cache.Snapshot();
@@ -576,20 +566,6 @@ void ReadFileList(const char[] file, ArrayList &list)
 	delete kv;
 }
 
-void GetRandomElementFromCache(StringMap cache, ArrayList &list)
-{
-	StringMapSnapshot snapshot = cache.Snapshot();
-	if (snapshot.Length != 0)
-	{
-		int index = GetRandomInt(0, snapshot.Length - 1);
-		int size = snapshot.KeyBufferSize(index);
-		char[] key = new char[size];
-		snapshot.GetKey(index, key, size);
-		cache.GetValue(key, list);
-	}
-	delete snapshot;
-}
-
 stock bool IsSoundChar(char c)
 {
 	bool b;
@@ -665,7 +641,7 @@ public bool IterateSounds(const char[] file)
 	return true;
 }
 
-public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
+public void EventHook_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
 	if (!g_IsEnabled)
 		return;
