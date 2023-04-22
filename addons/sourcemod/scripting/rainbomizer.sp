@@ -19,6 +19,7 @@
 #include <sdkhooks>
 #include <sdktools>
 #include <tf2items>
+#include <tf2utils>
 
 #pragma newdecls required
 #pragma semicolon 1
@@ -40,7 +41,6 @@ typeset FileIterator
 }
 
 // Global handles
-Handle g_SDKCallEquipWearable;
 StringMap g_SoundCache;
 StringMap g_ModelCache;
 ArrayList g_BlacklistedSounds;
@@ -111,19 +111,6 @@ public void OnPluginStart()
 	ReadFileList("configs/rainbomizer/blacklisted_sounds.cfg", g_BlacklistedSounds);
 	ReadFileList("configs/rainbomizer/playermodels.cfg", g_PlayerModels);
 	ReadFileList("configs/rainbomizer/skynames.cfg", g_SkyNames);
-	
-	GameData gamedata = new GameData("rainbomizer");
-	if (!gamedata)
-		SetFailState("Failed to read rainbomizer gamedata");
-	
-	StartPrepSDKCall(SDKCall_Player);
-	if (!PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTFPlayer::EquipWearable"))
-		SetFailState("Failed to create SDK call: CTFPlayer::EquipWearable");
-	
-	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-	g_SDKCallEquipWearable = EndPrepSDKCall();
-	
-	delete gamedata;
 }
 
 public void OnConfigsExecuted()
@@ -663,7 +650,7 @@ public void EventHook_PostInventoryApplication(Event event, const char[] name, b
 	
 	delete item;
 	
-	SDKCall(g_SDKCallEquipWearable, client, wearable);
+	TF2Util_EquipPlayerWearable(client, wearable);
 	
 	SetEntProp(client, Prop_Send, "m_nRenderFX", 6);
 	SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
