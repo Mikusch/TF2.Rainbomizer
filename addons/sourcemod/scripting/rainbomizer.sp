@@ -287,7 +287,7 @@ void RandomizeSky()
 	}
 }
 
-void ClearCache(StringMap &cache)
+void ClearCache(StringMap cache)
 {
 	// Delete all contained lists in the map
 	StringMapSnapshot snapshot = cache.Snapshot();
@@ -494,17 +494,23 @@ void IterateDirectoryRecursive(const char[] directory, ArrayList &list, FileIter
 	FileType type;
 	while (directoryListing.GetNext(file, sizeof(file), type))
 	{
-		Format(file, sizeof(file), "%s/%s", directory, file);
-		
 		switch (type)
 		{
 			case FileType_Directory:
 			{
+				// Don't process special directory names
+				if (file[0] == '.')
+					continue;
+				
+				Format(file, sizeof(file), "%s/%s", directory, file);
+				
 				// Collect files in subfolders too
 				IterateDirectoryRecursive(file, list, callback);
 			}
 			case FileType_File:
 			{
+				Format(file, sizeof(file), "%s/%s", directory, file);
+				
 				// Call iterator function
 				Call_StartFunction(null, callback);
 				Call_PushString(file);
