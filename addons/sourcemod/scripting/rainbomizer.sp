@@ -22,7 +22,7 @@ public Plugin myInfo =
 	name = "[TF2] Rainbomizer", 
 	author = "Mikusch", 
 	description = "A visual and auditory randomizer for Team Fortress 2", 
-	version = "1.0.0", 
+	version = "2.0.0", 
 	url = "https://github.com/Mikusch/TF2.Rainbomizer"
 };
 
@@ -32,29 +32,95 @@ enum struct SoundInfo
 	char replacement[PLATFORM_MAX_PATH];
 }
 
+int g_iParticleEffectNamesTableIdx;
+
 StringMap g_hModelCache;
 StringMap g_hSoundCache;
 StringMap g_hRecentlyReplaced;
+ArrayList g_hLoopingSounds;
+ArrayList g_hSkyNames;
 
-ArrayList blacklistedSounds;
+ConVar sv_skyname;
 
 public void OnPluginStart()
 {
+	g_iParticleEffectNamesTableIdx = FindStringTable("ParticleEffectNames");
+	
 	g_hModelCache = new StringMap();
 	g_hSoundCache = new StringMap();
 	g_hRecentlyReplaced = new StringMap();
+	g_hLoopingSounds = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+	g_hSkyNames = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+	
+	sv_skyname = FindConVar("sv_skyname");
+	
+	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_hLoopingSounds);
+	ReadFilesFromKeyValues("configs/rainbomizer/skynames.cfg", g_hSkyNames);
 	
 	IterateDirectoryRecursive("models", g_hModelCache, new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH)));
 	IterateDirectoryRecursive("sound", g_hSoundCache, new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH)));
 	
 	AddNormalSoundHook(NormalSoundHook);
-	
-	
 }
 
 public void OnMapStart()
 {
 	g_hRecentlyReplaced.Clear();
+	
+	// Randomize sky
+	if (g_hSkyNames.Length != 0)
+	{
+		char skyname[PLATFORM_MAX_PATH];
+		if (g_hSkyNames.GetString(GetRandomInt(0, g_hSkyNames.Length - 1), skyname, sizeof(skyname)))
+		{
+			sv_skyname.SetString(skyname);
+		}
+	}
+}
+
+public void OnMapInit(const char[] mapName)
+{
+	// Parse entity lump for light data
+	for (int i = 0; i < EntityLump.Length(); i++)
+	{
+		EntityLumpEntry entry = EntityLump.Get(i);
+		
+		int index = entry.FindKey("classname");
+		if (index == 1)
+			continue;
+		
+		char classname[64];
+		entry.Get(index, _, _, classname, sizeof(classname));
+		
+		if (!StrEqual(classname, "light") && !StrEqual(classname, "light_spot") && !StrEqual(classname, "light_environment"))
+			continue;
+		
+		// TODO no repetition lmao
+		char value[64];
+		int _light_index = entry.GetNextKey("_light", value, sizeof(value));
+		if (_light_index != -1)
+		{
+			int colorInt[4];
+			StringToColor(value, colorInt);
+			
+			char strColor[32];
+			GetRandomColorStringRGBA(strColor, sizeof(strColor), colorInt[3]);
+			entry.Update(_light_index, "_light", strColor);
+		}
+		
+		int _ambient = entry.GetNextKey("_ambient", value, sizeof(value));
+		if (_ambient != -1)
+		{
+			int colorInt[4];
+			StringToColor(value, colorInt);
+			
+			char strColor[32];
+			GetRandomColorStringRGBA(strColor, sizeof(strColor), colorInt[3]);
+			entry.Update(_ambient, "_light", strColor);
+		}
+		
+		delete entry;
+	}
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -63,6 +129,32 @@ public void OnEntityCreated(int entity, const char[] classname)
 	if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
+	}
+	
+	// Randomize light colors
+	if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_LightSpawnPost);
+	}
+	
+	if (StrEqual(classname, "env_fog_controller"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
+	}
+	
+	if (StrEqual(classname, "env_sun"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_EnvSunSpawnPost);
+	}
+	
+	if (StrEqual(classname, "shadow_control"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
+	}
+	
+	if (StrEqual(classname, "info_particle_system"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ParticleSystemSpawnPost);
 	}
 }
 
@@ -97,7 +189,70 @@ ArrayList GetApplicablePaths(StringMap map, const char[] base)
 	return list;
 }
 
-public void SDKHookCB_ModelEntitySpawnPost(int entity)
+void GetRandomColorStringRGBA(char[] color, int maxlength, int alpha_override = -1)
+{
+	int r, g, b, a;
+	GetRandomColorRGBA(r, g, b, a);
+	
+	if (alpha_override != -1)
+		a = alpha_override;
+	
+	Format(color, maxlength, "%d %d %d %d", r, g, b, a);
+}
+
+void GetRandomColorRGBA(int &r, int &g, int &b, int &a = 255)
+{
+	r = GetRandomInt(0, 255);
+	g = GetRandomInt(0, 255);
+	b = GetRandomInt(0, 255);
+	a = GetRandomInt(0, 255);
+}
+
+int GetRandomColorInt(int alpha)
+{
+	int r, g, b;
+	GetRandomColorRGBA(r, g, b);
+	return Color32ToInt(r, g, b, alpha);
+}
+
+int Color32ToInt(int r, int g, int b, int a)
+{
+	return (r << 24) | (g << 16) | (b << 8) | (a);
+}
+
+int GetColorAlpha(int color)
+{
+	return (color >> 24) & 0xFF;
+}
+
+void StringToColor(const char[] str, int color[4])
+{
+	char buffer[4][16];
+	ExplodeString(str, " ", buffer, sizeof(buffer), sizeof(buffer[]));
+	
+	for (int i = 0; i < sizeof(color); i++)
+	{
+		color[i] = StringToInt(buffer[i]);
+	}
+}
+
+bool GetStringTableEntry(int tableidx, int stringidx, char[] str, int maxlength)
+{
+	if (ReadStringTable(tableidx, stringidx, str, maxlength))
+	{
+		// Ignore empty entries
+		if (!str[0])
+			return false;
+		
+		// Fix up Windows paths
+		ReplaceString(str, maxlength, "\\", "/");
+		return true;
+	}
+	
+	return false;
+}
+
+static void SDKHookCB_ModelEntitySpawnPost(int entity)
 {
 	char m_ModelName[PLATFORM_MAX_PATH];
 	if (!GetEntPropString(entity, Prop_Data, "m_ModelName", m_ModelName, sizeof(m_ModelName)))
@@ -125,6 +280,41 @@ public void SDKHookCB_ModelEntitySpawnPost(int entity)
 	delete list;
 }
 
+static void SDKHookCB_LightSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
+}
+
+static void SDKHookCB_FogControllerSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorPrimary"))));
+	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorSecondary"))));
+	SetEntProp(entity, Prop_Data, "m_fog.blend", true);
+}
+
+static void SDKHookCB_EnvSunSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
+	SetEntProp(entity, Prop_Send, "m_clrOverlay", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrOverlay"))));
+}
+
+static void SDKHookCB_ShadowControlSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_shadowColor"))));
+}
+
+static void SDKHookCB_ParticleSystemSpawnPost(int entity)
+{
+	int num = GetStringTableNumStrings(g_iParticleEffectNamesTableIdx);
+	int stringidx = GetRandomInt(0, num - 1);
+	
+	char effectName[PLATFORM_MAX_PATH];
+	if (GetStringTableEntry(g_iParticleEffectNamesTableIdx, stringidx, effectName, sizeof(effectName)))
+	{
+		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
+	}
+}
+
 static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
 	char filePath[PLATFORM_MAX_PATH];
@@ -143,7 +333,7 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 		ArrayList list = GetApplicablePaths(g_hSoundCache, filePath);
 		
 		char replacement[PLATFORM_MAX_PATH];
-		if (GetReplacementFile(list, replacement, sizeof(replacement)))
+		if (list.Length && list.GetString(GetRandomInt(0, list.Length - 1), replacement, sizeof(replacement)))
 		{
 			info.time = GetGameTime();
 			strcopy(info.replacement, sizeof(info.replacement), replacement);
@@ -162,12 +352,36 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	return Plugin_Continue;
 }
 
-bool GetReplacementFile(ArrayList list, char[] replacement, int maxlength)
+void ReadFilesFromKeyValues(const char[] file, ArrayList &list)
 {
-	if (list.Length == 0 || !list.GetString(GetRandomInt(0, list.Length - 1), replacement, maxlength))
-		return false;
+	list = new ArrayList(PLATFORM_MAX_PATH);
 	
-	return true;
+	// Build path
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), file);
+	
+	// Iterate file list
+	KeyValues kv = new KeyValues("Files");
+	if (kv.ImportFromFile(path))
+	{
+		if (kv.GotoFirstSubKey(false))
+		{
+			do
+			{
+				char sound[PLATFORM_MAX_PATH];
+				kv.GetString(NULL_STRING, sound, sizeof(sound));
+				list.PushString(sound);
+			}
+			while (kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+	else
+	{
+		LogError("Failed to find configuration file %s", file);
+	}
+	delete kv;
 }
 
 void GetPreviousDirectoryPath(char[] directory, int levels = 1)
@@ -266,7 +480,7 @@ bool IsValidFile(const char[] filename)
 	if (!strcopy(extension, sizeof(extension), filename[strlen(filename) - 4]))
 		return false;
 	
-	if (StrEqual(extension, ".mp3") || StrEqual(extension, ".wav") && StrContains(filename, "loop") == -1)
+	if (StrEqual(extension, ".mp3") || StrEqual(extension, ".wav") && g_hLoopingSounds.FindString(filename) == -1)
 		return true;
 	
 	return StrEqual(extension, ".mdl") && StrContains(filename, "festivizer") == -1 && StrContains(filename, "xmas") == -1 && StrContains(filename, "xms") == -1;
