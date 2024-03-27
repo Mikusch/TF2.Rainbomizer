@@ -6,6 +6,8 @@
 #include <sdktools>
 #include <tf2utils>
 
+#define PLUGIN_VERSION	"2.0.0"
+
 #define CHAR_STREAM			'*'		// as one of 1st 2 chars in name, indicates streaming wav data
 #define CHAR_USERVOX		'?'		// as one of 1st 2 chars in name, indicates user realtime voice data
 #define CHAR_SENTENCE		'!'		// as one of 1st 2 chars in name, indicates sentence wav
@@ -22,7 +24,7 @@ public Plugin myInfo =
 	name = "[TF2] Rainbomizer", 
 	author = "Mikusch", 
 	description = "A visual and auditory randomizer for Team Fortress 2", 
-	version = "2.0.0", 
+	version = PLUGIN_VERSION, 
 	url = "https://github.com/Mikusch/TF2.Rainbomizer"
 };
 
