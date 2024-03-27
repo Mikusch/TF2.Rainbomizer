@@ -1,7 +1,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define CONFIG_PATH	"configs/rainbomizer/looping_sounds.cfg"
+#define CONFIG_PATH		"configs/rainbomizer/looping_sounds.cfg"
 
 int g_numProcessed;
 
