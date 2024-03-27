@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2024  Mikusch
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma newdecls required
 #pragma semicolon 1
 
@@ -60,11 +77,11 @@ public void OnPluginStart()
 	g_hSkyNames = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	g_hPlayerModels = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	
-	sm_rainbomizer_enabled = CreateConVar("sm_rainbomizer_enabled", "1", "Whether to enable the plugin.");
+	sm_rainbomizer_enabled = CreateConVar("sm_rainbomizer_enabled", "1", "When set, the plugin will be enabled.");
 	sm_rainbomizer_enabled.AddChangeHook(ConVarChanged_Enable);
-	sm_rainbomizer_randomize_models = CreateConVar("sm_rainbomizer_randomize_models", "1", "Whether to randomize models.");
-	sm_rainbomizer_randomize_sounds = CreateConVar("sm_rainbomizer_randomize_sounds", "1", "Whether to randomize sounds.");
-	sm_rainbomizer_randomize_playermodels = CreateConVar("sm_rainbomizer_randomize_playermodels", "1", "Whether to randomize playermodels.");
+	sm_rainbomizer_randomize_models = CreateConVar("sm_rainbomizer_randomize_models", "1", "When set, models will be randomized.");
+	sm_rainbomizer_randomize_sounds = CreateConVar("sm_rainbomizer_randomize_sounds", "1", "When set, sounds will be randomized.");
+	sm_rainbomizer_randomize_playermodels = CreateConVar("sm_rainbomizer_randomize_playermodels", "1", "When set,player models will be randomized.");
 	
 	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_hLoopingSounds);
 	ReadFilesFromKeyValues("configs/rainbomizer/skynames.cfg", g_hSkyNames);
