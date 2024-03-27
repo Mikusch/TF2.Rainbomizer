@@ -261,138 +261,6 @@ bool GetStringTableEntry(int tableidx, int stringidx, char[] str, int maxlength)
 	return false;
 }
 
-static void SDKHookCB_ModelEntitySpawnPost(int entity)
-{
-	char m_ModelName[PLATFORM_MAX_PATH];
-	if (!GetEntPropString(entity, Prop_Data, "m_ModelName", m_ModelName, sizeof(m_ModelName)))
-		return;
-	
-	if (StrContains(m_ModelName, "weapons/") != -1 || StrContains(m_ModelName, "player/items/") != -1)
-		GetPreviousDirectoryPath(m_ModelName, 2);
-	else
-		GetPreviousDirectoryPath(m_ModelName, 1);
-	
-	ArrayList list = GetApplicablePaths(g_hModelCache, m_ModelName);
-	
-	if (list.Length == 0)
-	{
-		delete list;
-		return;
-	}
-	
-	char model[PLATFORM_MAX_PATH];
-	if (list.GetString(GetRandomInt(0, list.Length - 1), model, sizeof(model)))
-		SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
-	
-	// Make attachments visible
-	if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
-		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
-	
-	delete list;
-}
-
-static void SDKHookCB_LightSpawnPost(int entity)
-{
-	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
-}
-
-static void SDKHookCB_FogControllerSpawnPost(int entity)
-{
-	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorPrimary"))));
-	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorSecondary"))));
-	SetEntProp(entity, Prop_Data, "m_fog.blend", true);
-}
-
-static void SDKHookCB_EnvSunSpawnPost(int entity)
-{
-	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
-	SetEntProp(entity, Prop_Send, "m_clrOverlay", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrOverlay"))));
-}
-
-static void SDKHookCB_ShadowControlSpawnPost(int entity)
-{
-	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_shadowColor"))));
-}
-
-static void SDKHookCB_ParticleSystemSpawnPost(int entity)
-{
-	int num = GetStringTableNumStrings(g_iParticleEffectNamesTableIdx);
-	int stringidx = GetRandomInt(0, num - 1);
-	
-	char effectName[PLATFORM_MAX_PATH];
-	if (GetStringTableEntry(g_iParticleEffectNamesTableIdx, stringidx, effectName, sizeof(effectName)))
-		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
-}
-
-static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
-{
-	if (!sm_rainbomizer_randomize_sounds.BoolValue)
-		return Plugin_Continue;
-	
-	char filePath[PLATFORM_MAX_PATH];
-	GetBaseSoundPath(sample, filePath, sizeof(filePath));
-	
-	// Voice lines like to call this hook once for every player.
-	// To avoid mass-precaching and everyone hearing a different sound, cache sound info for a short time.
-	SoundInfo info;
-	if (!strncmp(sample, "vo/", 3) && g_hRecentlyReplaced.GetArray(sample, info, sizeof(info)) && info.time + 0.1 > GetGameTime())
-	{
-		ReplaceString(sample, sizeof(sample), sample, info.replacement[6]);
-		return Plugin_Changed;
-	}
-	else
-	{
-		ArrayList list = GetApplicablePaths(g_hSoundCache, filePath);
-		
-		char replacement[PLATFORM_MAX_PATH];
-		if (list.Length && list.GetString(GetRandomInt(0, list.Length - 1), replacement, sizeof(replacement)))
-		{
-			info.time = GetGameTime();
-			strcopy(info.replacement, sizeof(info.replacement), replacement);
-			g_hRecentlyReplaced.SetArray(sample, info, sizeof(info));
-			
-			ReplaceString(sample, sizeof(sample), sample, replacement[6]);
-			PrecacheSound(sample);
-			
-			delete list;
-			return Plugin_Changed;
-		}
-		
-		delete list;
-	}
-	
-	return Plugin_Continue;
-}
-
-static void EventHook_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
-{
-	if (!sm_rainbomizer_randomize_playermodels.BoolValue || g_hPlayerModels.Length == 0)
-		return;
-	
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	
-	char model[PLATFORM_MAX_PATH];
-	g_hPlayerModels.GetString(GetRandomInt(0, g_hPlayerModels.Length - 1), model, sizeof(model));
-	
-	int wearable = CreateEntityByName("tf_wearable");
-	if (IsValidEntity(wearable) && DispatchSpawn(wearable))
-	{
-		TF2Util_EquipPlayerWearable(client, wearable);
-		
-		SetEntProp(client, Prop_Send, "m_nRenderFX", RENDERFX_FADE_FAST);
-		SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
-		SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
-	}
-}
-
-static void ConVarChanged_Enable(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	if (g_bEnabled != convar.BoolValue)
-	{
-		TogglePlugin(convar.BoolValue);
-	}
-}
-
 void ReadFilesFromKeyValues(const char[] file, ArrayList &list)
 {
 	list = new ArrayList(PLATFORM_MAX_PATH);
@@ -548,5 +416,137 @@ void TogglePlugin(bool bEnable)
 	{
 		UnhookEvent("post_inventory_application", EventHook_PostInventoryApplication);
 		RemoveNormalSoundHook(NormalSoundHook);
+	}
+}
+
+static void SDKHookCB_ModelEntitySpawnPost(int entity)
+{
+	char m_ModelName[PLATFORM_MAX_PATH];
+	if (!GetEntPropString(entity, Prop_Data, "m_ModelName", m_ModelName, sizeof(m_ModelName)))
+		return;
+	
+	if (StrContains(m_ModelName, "weapons/") != -1 || StrContains(m_ModelName, "player/items/") != -1)
+		GetPreviousDirectoryPath(m_ModelName, 2);
+	else
+		GetPreviousDirectoryPath(m_ModelName, 1);
+	
+	ArrayList list = GetApplicablePaths(g_hModelCache, m_ModelName);
+	
+	if (list.Length == 0)
+	{
+		delete list;
+		return;
+	}
+	
+	char model[PLATFORM_MAX_PATH];
+	if (list.GetString(GetRandomInt(0, list.Length - 1), model, sizeof(model)))
+		SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
+	
+	// Make attachments visible
+	if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
+		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+	
+	delete list;
+}
+
+static void SDKHookCB_LightSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
+}
+
+static void SDKHookCB_FogControllerSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorPrimary"))));
+	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorSecondary"))));
+	SetEntProp(entity, Prop_Data, "m_fog.blend", true);
+}
+
+static void SDKHookCB_EnvSunSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
+	SetEntProp(entity, Prop_Send, "m_clrOverlay", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrOverlay"))));
+}
+
+static void SDKHookCB_ShadowControlSpawnPost(int entity)
+{
+	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_shadowColor"))));
+}
+
+static void SDKHookCB_ParticleSystemSpawnPost(int entity)
+{
+	int num = GetStringTableNumStrings(g_iParticleEffectNamesTableIdx);
+	int stringidx = GetRandomInt(0, num - 1);
+	
+	char effectName[PLATFORM_MAX_PATH];
+	if (GetStringTableEntry(g_iParticleEffectNamesTableIdx, stringidx, effectName, sizeof(effectName)))
+		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
+}
+
+static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
+{
+	if (!sm_rainbomizer_randomize_sounds.BoolValue)
+		return Plugin_Continue;
+	
+	char filePath[PLATFORM_MAX_PATH];
+	GetBaseSoundPath(sample, filePath, sizeof(filePath));
+	
+	// Voice lines like to call this hook once for every player.
+	// To avoid mass-precaching and everyone hearing a different sound, cache sound info for a short time.
+	SoundInfo info;
+	if (!strncmp(sample, "vo/", 3) && g_hRecentlyReplaced.GetArray(sample, info, sizeof(info)) && info.time + 0.1 > GetGameTime())
+	{
+		ReplaceString(sample, sizeof(sample), sample, info.replacement[6]);
+		return Plugin_Changed;
+	}
+	else
+	{
+		ArrayList list = GetApplicablePaths(g_hSoundCache, filePath);
+		
+		char replacement[PLATFORM_MAX_PATH];
+		if (list.Length && list.GetString(GetRandomInt(0, list.Length - 1), replacement, sizeof(replacement)))
+		{
+			info.time = GetGameTime();
+			strcopy(info.replacement, sizeof(info.replacement), replacement);
+			g_hRecentlyReplaced.SetArray(sample, info, sizeof(info));
+			
+			ReplaceString(sample, sizeof(sample), sample, replacement[6]);
+			PrecacheSound(sample);
+			
+			delete list;
+			return Plugin_Changed;
+		}
+		
+		delete list;
+	}
+	
+	return Plugin_Continue;
+}
+
+static void EventHook_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
+{
+	if (!sm_rainbomizer_randomize_playermodels.BoolValue || g_hPlayerModels.Length == 0)
+		return;
+	
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	
+	char model[PLATFORM_MAX_PATH];
+	g_hPlayerModels.GetString(GetRandomInt(0, g_hPlayerModels.Length - 1), model, sizeof(model));
+	
+	int wearable = CreateEntityByName("tf_wearable");
+	if (IsValidEntity(wearable) && DispatchSpawn(wearable))
+	{
+		TF2Util_EquipPlayerWearable(client, wearable);
+		
+		SetEntProp(client, Prop_Send, "m_nRenderFX", RENDERFX_FADE_FAST);
+		SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
+		SetEntProp(wearable, Prop_Send, "m_bValidatedAttachedEntity", true);
+	}
+}
+
+static void ConVarChanged_Enable(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (g_bEnabled != convar.BoolValue)
+	{
+		TogglePlugin(convar.BoolValue);
 	}
 }
