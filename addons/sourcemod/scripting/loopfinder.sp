@@ -12,7 +12,7 @@ int g_numProcessed;
 // - By default, HL2 sounds are not processed as the sound data is not present in the server VPKs
 //   - You can fix this by copying hl2_sound_misc VPKs from the base game to the server
 
-public Plugin myInfo =
+public Plugin myinfo =
 {
 	name = "Looping Sound Finder",
 	author = "Mikusch",
