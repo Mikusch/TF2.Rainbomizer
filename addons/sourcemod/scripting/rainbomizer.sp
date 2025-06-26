@@ -52,6 +52,8 @@ enum struct SoundInfo
 }
 
 int g_iParticleEffectNamesTableIdx;
+int g_iSoundPrecacheTableIdx;
+int g_iModelPrecacheTableIdx;
 
 bool g_bEnabled;
 StringMap g_hModelCache;
@@ -60,15 +62,21 @@ StringMap g_hRecentlyReplaced;
 ArrayList g_hLoopingSounds;
 ArrayList g_hSkyNames;
 ArrayList g_hPlayerModels;
+ArrayList g_hCachedRandomModels;
+ArrayList g_hCachedRandomSounds;
 
 ConVar sm_rainbomizer_enabled;
 ConVar sm_rainbomizer_randomize_models;
 ConVar sm_rainbomizer_randomize_sounds;
 ConVar sm_rainbomizer_randomize_playermodels;
+ConVar sm_rainbomizer_full_random;
+ConVar sm_rainbomizer_stringtable_safety_treshold;
 
 public void OnPluginStart()
 {
 	g_iParticleEffectNamesTableIdx = FindStringTable("ParticleEffectNames");
+	g_iSoundPrecacheTableIdx = FindStringTable("soundprecache");
+	g_iModelPrecacheTableIdx = FindStringTable("modelprecache");
 	
 	g_hModelCache = new StringMap();
 	g_hSoundCache = new StringMap();
@@ -76,12 +84,16 @@ public void OnPluginStart()
 	g_hLoopingSounds = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	g_hSkyNames = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	g_hPlayerModels = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+	g_hCachedRandomModels = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+	g_hCachedRandomSounds = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	
 	sm_rainbomizer_enabled = CreateConVar("sm_rainbomizer_enabled", "1", "When set, the plugin will be enabled.");
 	sm_rainbomizer_enabled.AddChangeHook(ConVarChanged_Enable);
 	sm_rainbomizer_randomize_models = CreateConVar("sm_rainbomizer_randomize_models", "1", "When set, models will be randomized.");
 	sm_rainbomizer_randomize_sounds = CreateConVar("sm_rainbomizer_randomize_sounds", "1", "When set, sounds will be randomized.");
 	sm_rainbomizer_randomize_playermodels = CreateConVar("sm_rainbomizer_randomize_playermodels", "1", "When set,player models will be randomized.");
+	sm_rainbomizer_full_random = CreateConVar("sm_rainbomizer_full_random", "0", "When set, randomization ignores current asset paths and selects from all available assets.");
+	sm_rainbomizer_stringtable_safety_treshold = CreateConVar("sm_rainbomizer_stringtable_safety_treshold", "0.95", "Stop precaching new files when string tables are this full (in %).", _, true, 0.0, true, 1.0);
 	
 	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_hLoopingSounds);
 	ReadFilesFromKeyValues("configs/rainbomizer/skynames.cfg", g_hSkyNames);
@@ -94,6 +106,8 @@ public void OnPluginStart()
 public void OnMapStart()
 {
 	g_hRecentlyReplaced.Clear();
+	g_hCachedRandomModels.Clear();
+	g_hCachedRandomSounds.Clear();
 }
 
 public void OnMapInit(const char[] mapName)
@@ -172,31 +186,34 @@ public void OnEntityCreated(int entity, const char[] classname)
 ArrayList GetApplicablePaths(StringMap map, const char[] base)
 {
 	ArrayList list = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-	
 	StringMapSnapshot snapshot = map.Snapshot();
+	
+	int baseLen = strlen(base);
+	bool fullRandom = sm_rainbomizer_full_random.BoolValue;
+
 	for (int i = 0; i < snapshot.Length; i++)
 	{
 		int size = snapshot.KeyBufferSize(i);
 		char[] key = new char[size];
 		snapshot.GetKey(i, key, size);
-		
-		// Check sub-folders and collect their models for randomization
-		if (!strncmp(key, base, strlen(base)))
+
+		// If not in full random mode, skip keys that don't match the base path
+		if (!fullRandom && strncmp(key, base, baseLen) != 0)
+			continue;
+
+		ArrayList paths;
+		if (map.GetValue(key, paths))
 		{
-			ArrayList paths;
-			if (map.GetValue(key, paths))
+			for (int j = 0; j < paths.Length; j++)
 			{
-				for (int j = 0; j < paths.Length; j++)
-				{
-					char path[PLATFORM_MAX_PATH];
-					if (paths.GetString(j, path, sizeof(path)))
-						list.PushString(path);
-				}
+				char path[PLATFORM_MAX_PATH];
+				if (paths.GetString(j, path, sizeof(path)))
+					list.PushString(path);
 			}
 		}
 	}
+
 	delete snapshot;
-	
 	return list;
 }
 
@@ -359,6 +376,26 @@ void GetBaseSoundPath(const char[] sound, char[] buffer, int length)
 	Format(buffer, length, "sound/%s", buffer);
 }
 
+bool GetRandomPathWithFallback(ArrayList candidates, ArrayList cache, int tableIdx, char[] result, int maxlen)
+{
+	if (!CanAddToStringTable(tableIdx) && cache.Length > 0)
+	{
+		return cache.GetString(GetRandomInt(0, cache.Length - 1), result, maxlen);
+	}
+
+	if (candidates.Length == 0)
+		return false;
+
+	if (candidates.GetString(GetRandomInt(0, candidates.Length - 1), result, maxlen))
+	{
+		if (CanAddToStringTable(tableIdx))
+			cache.PushString(result);
+		return true;
+	}
+
+	return false;
+}
+
 void IterateDirectoryRecursive(const char[] directory, StringMap cache, ArrayList list)
 {
 	// Search the directory we are trying to randomize
@@ -413,6 +450,21 @@ bool IsValidFile(const char[] filename)
 	return StrEqual(extension, ".mdl") && StrContains(filename, "festivizer") == -1 && StrContains(filename, "xmas") == -1 && StrContains(filename, "xms") == -1;
 }
 
+bool CanAddToStringTable(int tableidx)
+{
+	int num = GetStringTableNumStrings(tableidx);
+	int max = GetStringTableMaxStrings(tableidx);
+	return float(num) / float(max) < sm_rainbomizer_stringtable_safety_treshold.FloatValue;
+}
+
+void RandomizeEntityColorInt(int entity, PropType type, const char[] prop)
+{
+	int original = GetEntProp(entity, type, prop);
+	int alpha = GetColorAlpha(original);
+	int randomized = GetRandomColorInt(alpha);
+	SetEntProp(entity, type, prop, randomized);
+}
+
 void TogglePlugin(bool bEnable)
 {
 	g_bEnabled = bEnable;
@@ -449,44 +501,39 @@ static void SDKHookCB_ModelEntitySpawnPost(int entity)
 	
 	ArrayList list = GetApplicablePaths(g_hModelCache, m_ModelName);
 	
-	if (list.Length == 0)
-	{
-		delete list;
-		return;
-	}
-	
 	char model[PLATFORM_MAX_PATH];
-	if (list.GetString(GetRandomInt(0, list.Length - 1), model, sizeof(model)))
+	if (GetRandomPathWithFallback(list, g_hCachedRandomModels, g_iModelPrecacheTableIdx, model, sizeof(model)))
+	{
 		SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
-	
-	// Make attachments visible
-	if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
-		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+		
+		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
+			SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+	}
 	
 	delete list;
 }
 
 static void SDKHookCB_LightSpawnPost(int entity)
 {
-	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
+	RandomizeEntityColorInt(entity, Prop_Send, "m_clrRender");
 }
 
 static void SDKHookCB_FogControllerSpawnPost(int entity)
 {
-	SetEntProp(entity, Prop_Data, "m_fog.colorPrimary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorPrimary"))));
-	SetEntProp(entity, Prop_Data, "m_fog.colorSecondary", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_fog.colorSecondary"))));
+	RandomizeEntityColorInt(entity, Prop_Data, "m_fog.colorPrimary");
+	RandomizeEntityColorInt(entity, Prop_Data, "m_fog.colorSecondary");
 	SetEntProp(entity, Prop_Data, "m_fog.blend", true);
 }
 
 static void SDKHookCB_EnvSunSpawnPost(int entity)
 {
-	SetEntProp(entity, Prop_Send, "m_clrRender", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrRender"))));
-	SetEntProp(entity, Prop_Send, "m_clrOverlay", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_clrOverlay"))));
+	RandomizeEntityColorInt(entity, Prop_Send, "m_clrRender");
+	RandomizeEntityColorInt(entity, Prop_Send, "m_clrOverlay");
 }
 
 static void SDKHookCB_ShadowControlSpawnPost(int entity)
 {
-	SetEntProp(entity, Prop_Data, "m_shadowColor", GetRandomColorInt(GetColorAlpha(GetEntProp(entity, Prop_Send, "m_shadowColor"))));
+	RandomizeEntityColorInt(entity, Prop_Data, "m_shadowColor");
 }
 
 static void SDKHookCB_ParticleSystemSpawnPost(int entity)
@@ -520,7 +567,7 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 		ArrayList list = GetApplicablePaths(g_hSoundCache, filePath);
 		
 		char replacement[PLATFORM_MAX_PATH];
-		if (list.Length && list.GetString(GetRandomInt(0, list.Length - 1), replacement, sizeof(replacement)))
+		if (GetRandomPathWithFallback(list, g_hCachedRandomSounds, g_iSoundPrecacheTableIdx, replacement, sizeof(replacement)))
 		{
 			info.time = GetGameTime();
 			strcopy(info.replacement, sizeof(info.replacement), replacement);
@@ -532,8 +579,6 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 			delete list;
 			return Plugin_Changed;
 		}
-		
-		delete list;
 	}
 	
 	return Plugin_Continue;
