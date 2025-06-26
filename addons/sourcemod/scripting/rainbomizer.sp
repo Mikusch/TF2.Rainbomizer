@@ -557,7 +557,7 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 	// Voice lines like to call this hook once for every player.
 	// To avoid mass-precaching and everyone hearing a different sound, cache sound info for a short time.
 	SoundInfo info;
-	if (!strncmp(sample, "vo/", 3) && g_hRecentlyReplaced.GetArray(sample, info, sizeof(info)) && info.time + 0.1 > GetGameTime())
+	if (!strncmp(sample, "vo/", 3) && g_hRecentlyReplaced.GetArray(sample, info, sizeof(info)) && info.time + GetGameFrameTime() > GetGameTime())
 	{
 		ReplaceString(sample, sizeof(sample), sample, info.replacement[6]);
 		return Plugin_Changed;
