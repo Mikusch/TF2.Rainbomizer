@@ -98,7 +98,7 @@ public void OnPluginStart()
 	}
 	else
 	{
-		LogError("Failed to find rainbomizer gamedata; player model randomization will be disabled.");
+		LogError("Failed to load rainbomizer gamedata");
 	}
 
 	PSM_Init("rbmz_enabled");
@@ -159,7 +159,7 @@ public void OnConfigsExecuted()
 public void OnClientPutInServer(int client)
 {
 	if (PSM_IsEnabled())
-		PSM_SDKHook(client, SDKHook_WeaponSwitch, SDKHookCB_WeaponSwitch);
+		PSM_SDKHook(client, SDKHook_WeaponSwitch, CTFPlayer_WeaponSwitch);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -170,45 +170,45 @@ public void OnEntityCreated(int entity, const char[] classname)
 	// Non-player CBaseAnimating.
 	if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation") && rbmz_randomize_models.BoolValue)
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseAnimating_SpawnPost);
 	}
 	// Static lights.
 	else if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseEntity_SpawnPost);
 	}
 	// Colorable entities.
 	else if (StrEqual(classname, "env_sprite") || StrEqual(classname, "env_steam") || StrEqual(classname, "env_steamjet") || StrEqual(classname, "env_smokestack") || StrEqual(classname, "env_embers"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseEntity_SpawnPost);
 	}
 	else if (StrEqual(classname, "func_dustmotes"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_DustMotesSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CFunc_DustMotes_SpawnPost);
 	}
 	else if (StrEqual(classname, "env_fog_controller"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CFogController_SpawnPost);
 	}
 	else if (StrEqual(classname, "env_sun"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_EnvSunSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CSun_SpawnPost);
 	}
 	else if (StrEqual(classname, "shadow_control"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CShadowControl_SpawnPost);
 	}
 	else if (StrEqual(classname, "info_particle_system"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ParticleSystemSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CParticleSystem_SpawnPost);
 	}
 	else if (StrEqual(classname, "tf_ragdoll"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RagdollSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CTFRagdoll_SpawnPost);
 	}
 	else if (StrEqual(classname, "func_precipitation"))
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_PrecipitationSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, CPrecipitation_SpawnPost);
 	}
 }
 
@@ -395,7 +395,7 @@ void ReadFilesFromKeyValues(const char[] file, ArrayList &list)
 	}
 	else
 	{
-		LogError("Failed to find configuration file %s", file);
+		LogError("Failed to find configuration file: %s", file);
 	}
 	delete kv;
 }
@@ -546,7 +546,7 @@ int SelectRandomModelIndex(ArrayList list)
 	return PrecacheModel(model);
 }
 
-static void SDKHookCB_ModelEntitySpawnPost(int entity)
+static void CBaseAnimating_SpawnPost(int entity)
 {
 	if (!rbmz_randomize_models.BoolValue)
 		return;
@@ -604,7 +604,7 @@ void RandomizeViewModel(int weapon)
 		SetEntProp(weapon, Prop_Send, "m_nCustomViewmodelModelIndex", index);
 }
 
-static Action SDKHookCB_WeaponSwitch(int client, int weapon)
+static Action CTFPlayer_WeaponSwitch(int client, int weapon)
 {
 	if (rbmz_randomize_viewmodels.BoolValue && IsValidEntity(weapon))
 		RandomizeViewModel(weapon);
@@ -612,24 +612,24 @@ static Action SDKHookCB_WeaponSwitch(int client, int weapon)
 	return Plugin_Continue;
 }
 
-static void SDKHookCB_RenderEntitySpawnPost(int entity)
+static void CBaseEntity_SpawnPost(int entity)
 {
 	RandomizeColor(entity, "m_clrRender", "rendercolor");
 }
 
-static void SDKHookCB_DustMotesSpawnPost(int entity)
+static void CFunc_DustMotes_SpawnPost(int entity)
 {
 	RandomizeColor(entity, "m_Color", "Color");
 }
 
-static void SDKHookCB_FogControllerSpawnPost(int entity)
+static void CFogController_SpawnPost(int entity)
 {
 	RandomizeColor(entity, "m_fog.colorPrimary", "fogcolor");
 	RandomizeColor(entity, "m_fog.colorSecondary", "fogcolor2");
 	DispatchKeyValueInt(entity, "fogblend", 1);
 }
 
-static void SDKHookCB_EnvSunSpawnPost(int entity)
+static void CSun_SpawnPost(int entity)
 {
 	RandomizeColor(entity, "m_clrRender", "rendercolor");
 	RandomizeColor(entity, "m_clrOverlay", "overlaycolor");
@@ -638,12 +638,12 @@ static void SDKHookCB_EnvSunSpawnPost(int entity)
 	DispatchKeyValueInt(entity, "overlaysize", GetRandomInt(4, 64));
 }
 
-static void SDKHookCB_ShadowControlSpawnPost(int entity)
+static void CShadowControl_SpawnPost(int entity)
 {
 	RandomizeColor(entity, "m_shadowColor", "color");
 }
 
-static void SDKHookCB_ParticleSystemSpawnPost(int entity)
+static void CParticleSystem_SpawnPost(int entity)
 {
 	int num = GetStringTableNumStrings(g_particleEffectNamesTable);
 	int stringIndex = GetRandomInt(0, num - 1);
@@ -653,7 +653,7 @@ static void SDKHookCB_ParticleSystemSpawnPost(int entity)
 		DispatchKeyValue(entity, "effect_name", effectName);
 }
 
-static void SDKHookCB_RagdollSpawnPost(int entity)
+static void CTFRagdoll_SpawnPost(int entity)
 {
 	RequestFrame(RequestFrame_RandomizeRagdoll, EntIndexToEntRef(entity));
 }
@@ -682,7 +682,7 @@ static void RequestFrame_RandomizeRagdoll(int ref)
 	}
 }
 
-static void SDKHookCB_PrecipitationSpawnPost(int entity)
+static void CPrecipitation_SpawnPost(int entity)
 {
 	// 0 = rain, 1 = snow, 2 = ash, 3 = snowfall (NUM_PRECIPITATION_TYPES)
 	DispatchKeyValueInt(entity, "preciptype", GetRandomInt(0, 3));
