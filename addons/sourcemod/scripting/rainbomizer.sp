@@ -102,6 +102,7 @@ public void OnPluginStart()
 	}
 
 	PSM_Init("rbmz_enabled");
+	PSM_AddPluginStateChangedHook(OnPluginStateChanged);
 	PSM_AddNormalSoundHook(NormalSoundHook);
 	PSM_AddEventHook("post_inventory_application", EventHook_PostInventoryApplication);
 	PSM_AddEventHook("teamplay_round_start", EventHook_TeamplayRoundStart);
@@ -167,48 +168,68 @@ public void OnEntityCreated(int entity, const char[] classname)
 	if (!PSM_IsEnabled())
 		return;
 
+	SDKHookCB callback = GetSpawnPostCallback(entity, classname);
+	if (callback != INVALID_FUNCTION)
+		PSM_SDKHook(entity, SDKHook_SpawnPost, callback);
+}
+
+static SDKHookCB GetSpawnPostCallback(int entity, const char[] classname)
+{
 	// Non-player CBaseAnimating.
 	if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation") && rbmz_randomize_models.BoolValue)
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseAnimating_SpawnPost);
-	}
+		return CBaseAnimating_SpawnPost;
 	// Static lights.
 	else if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseEntity_SpawnPost);
-	}
+		return CBaseEntity_SpawnPost;
 	// Colorable entities.
 	else if (StrEqual(classname, "env_sprite") || StrEqual(classname, "env_steam") || StrEqual(classname, "env_steamjet") || StrEqual(classname, "env_smokestack") || StrEqual(classname, "env_embers"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CBaseEntity_SpawnPost);
-	}
+		return CBaseEntity_SpawnPost;
 	else if (StrEqual(classname, "func_dustmotes"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CFunc_DustMotes_SpawnPost);
-	}
+		return CFunc_DustMotes_SpawnPost;
 	else if (StrEqual(classname, "env_fog_controller"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CFogController_SpawnPost);
-	}
+		return CFogController_SpawnPost;
 	else if (StrEqual(classname, "env_sun"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CSun_SpawnPost);
-	}
+		return CSun_SpawnPost;
 	else if (StrEqual(classname, "shadow_control"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CShadowControl_SpawnPost);
-	}
+		return CShadowControl_SpawnPost;
 	else if (StrEqual(classname, "info_particle_system"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CParticleSystem_SpawnPost);
-	}
+		return CParticleSystem_SpawnPost;
 	else if (StrEqual(classname, "tf_ragdoll"))
-	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CTFRagdoll_SpawnPost);
-	}
+		return CTFRagdoll_SpawnPost;
 	else if (StrEqual(classname, "func_precipitation"))
+		return CPrecipitation_SpawnPost;
+
+	return INVALID_FUNCTION;
+}
+
+static void OnPluginStateChanged(bool enabled)
+{
+	if (!enabled)
+		return;
+
+	for (int client = 1; client <= MaxClients; client++)
 	{
-		PSM_SDKHook(entity, SDKHook_SpawnPost, CPrecipitation_SpawnPost);
+		if (IsClientInGame(client))
+			OnClientPutInServer(client);
+	}
+
+	int entity = -1;
+	char classname[64];
+	while ((entity = FindEntityByClassname(entity, "*")) != -1)
+	{
+		if (!GetEntityClassname(entity, classname, sizeof(classname)))
+			continue;
+
+		SDKHookCB callback = GetSpawnPostCallback(entity, classname);
+		if (callback == INVALID_FUNCTION)
+			continue;
+
+		PSM_SDKHook(entity, SDKHook_SpawnPost, callback);
+
+		// SpawnPost won't fire for an already-spawned entity, so apply the effect immediately.
+		Call_StartFunction(null, view_as<Function>(callback));
+		Call_PushCell(entity);
+		Call_Finish();
 	}
 }
 
@@ -345,13 +366,11 @@ void StringToColor(const char[] str, int color[4])
 }
 
 // Randomizes an entity color's RGB while preserving its current alpha, applied via its keyvalue.
-void RandomizeColor(int entity, const char[] prop, const char[] key)
+void RandomizeColor(int entity, const char[] prop)
 {
 	int alpha = GetColorAlpha(GetEntProp(entity, Prop_Send, prop));
-
-	char color[24];
-	Format(color, sizeof(color), "%d %d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255), alpha);
-	DispatchKeyValue(entity, key, color);
+	int color = GetRandomInt(0, 255) | (GetRandomInt(0, 255) << 8) | (GetRandomInt(0, 255) << 16) | (alpha << 24);
+	SetEntProp(entity, Prop_Send, prop, color);
 }
 
 bool GetStringTableEntry(int table, int stringIndex, char[] str, int maxlength)
@@ -521,11 +540,11 @@ ArrayList GetApplicablePaths(StringMap map, const char[] base)
 
 void RandomizeModelAppearance(int entity)
 {
-	DispatchKeyValueInt(entity, "skin", GetRandomInt(0, 3));
-	DispatchKeyValueInt(entity, "body", GetRandomInt(0, 63));
+	SetEntProp(entity, Prop_Send, "m_nSkin", GetRandomInt(0, 3));
+	SetEntProp(entity, Prop_Send, "m_nBody", GetRandomInt(0, 63));
 
 	if (rbmz_randomize_scale.BoolValue)
-		DispatchKeyValueFloat(entity, "modelscale", GetRandomFloat(0.5, 2.0));
+		SetEntPropFloat(entity, Prop_Send, "m_flModelScale", GetRandomFloat(0.5, 2.0));
 }
 
 int SelectRandomModelIndex(ArrayList list)
@@ -614,33 +633,33 @@ static Action CTFPlayer_WeaponSwitch(int client, int weapon)
 
 static void CBaseEntity_SpawnPost(int entity)
 {
-	RandomizeColor(entity, "m_clrRender", "rendercolor");
+	RandomizeColor(entity, "m_clrRender");
 }
 
 static void CFunc_DustMotes_SpawnPost(int entity)
 {
-	RandomizeColor(entity, "m_Color", "Color");
+	RandomizeColor(entity, "m_Color");
 }
 
 static void CFogController_SpawnPost(int entity)
 {
-	RandomizeColor(entity, "m_fog.colorPrimary", "fogcolor");
-	RandomizeColor(entity, "m_fog.colorSecondary", "fogcolor2");
-	DispatchKeyValueInt(entity, "fogblend", 1);
+	RandomizeColor(entity, "m_fog.colorPrimary");
+	RandomizeColor(entity, "m_fog.colorSecondary");
+	SetEntProp(entity, Prop_Send, "m_fog.blend", true);
 }
 
 static void CSun_SpawnPost(int entity)
 {
-	RandomizeColor(entity, "m_clrRender", "rendercolor");
-	RandomizeColor(entity, "m_clrOverlay", "overlaycolor");
+	RandomizeColor(entity, "m_clrRender");
+	RandomizeColor(entity, "m_clrOverlay");
 
-	DispatchKeyValueInt(entity, "size", GetRandomInt(4, 64));
-	DispatchKeyValueInt(entity, "overlaysize", GetRandomInt(4, 64));
+	SetEntProp(entity, Prop_Send, "m_nSize", GetRandomInt(4, 64));
+	SetEntProp(entity, Prop_Send, "m_nOverlaySize", GetRandomInt(4, 64));
 }
 
 static void CShadowControl_SpawnPost(int entity)
 {
-	RandomizeColor(entity, "m_shadowColor", "color");
+	RandomizeColor(entity, "m_shadowColor");
 }
 
 static void CParticleSystem_SpawnPost(int entity)
@@ -685,7 +704,7 @@ static void RequestFrame_RandomizeRagdoll(int ref)
 static void CPrecipitation_SpawnPost(int entity)
 {
 	// 0 = rain, 1 = snow, 2 = ash, 3 = snowfall (NUM_PRECIPITATION_TYPES)
-	DispatchKeyValueInt(entity, "preciptype", GetRandomInt(0, 3));
+	SetEntProp(entity, Prop_Send, "m_nPrecipType", GetRandomInt(0, 3));
 }
 
 bool SelectPrecachedString(ArrayList list, int table, int prefixLen, char[] out, int maxlength)
