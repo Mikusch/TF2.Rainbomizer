@@ -1,0 +1,15 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			// void CBasePlayer::EquipWearable( CEconWearable *pItem )
+			"CTFPlayer::EquipWearable()"
+			{
+				"windows"	"439"
+				"linux"		"440"
+			}
+		}
+	}
+}

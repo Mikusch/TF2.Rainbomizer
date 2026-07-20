@@ -21,9 +21,9 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-#include <tf2utils>
+#include <pluginstatemanager>
 
-#define PLUGIN_VERSION	"2.1.0"
+#define PLUGIN_VERSION	"3.0.0"
 
 #define CHAR_STREAM			'*'		// as one of 1st 2 chars in name, indicates streaming wav data
 #define CHAR_USERVOX		'?'		// as one of 1st 2 chars in name, indicates user realtime voice data
@@ -45,63 +45,83 @@ public Plugin myInfo =
 	url = "https://github.com/Mikusch/TF2.Rainbomizer"
 };
 
-int g_iParticleEffectNamesTableIdx;
-int g_iSoundPrecacheTableIdx;
-int g_iModelPrecacheTableIdx;
+int g_particleEffectNamesTable;
+int g_soundPrecacheTable;
+int g_modelPrecacheTable;
 
-bool g_bEnabled;
-StringMap g_hModelCache;
-StringMap g_hSoundCache;
-StringMap g_hSoundReplacements;
-ArrayList g_hLoopingSounds;
-ArrayList g_hSkyNames;
-ArrayList g_hPlayerModels;
+StringMap g_modelCache;
+StringMap g_soundCache;
+StringMap g_soundReplacements;
+ArrayList g_loopingSounds;
+ArrayList g_skyNames;
+ArrayList g_playerModels;
 
-ConVar sm_rainbomizer_enabled;
-ConVar sm_rainbomizer_randomize_models;
-ConVar sm_rainbomizer_randomize_sounds;
-ConVar sm_rainbomizer_randomize_playermodels;
-ConVar sm_rainbomizer_randomize_scale;
-ConVar sm_rainbomizer_max_sound_precaches;
-ConVar sm_rainbomizer_max_model_precaches;
+Handle g_sdkCallEquipWearable;
+
+ConVar rbmz_enabled;
+ConVar rbmz_randomize_models;
+ConVar rbmz_randomize_sounds;
+ConVar rbmz_randomize_playermodels;
+ConVar rbmz_randomize_viewmodels;
+ConVar rbmz_randomize_scale;
+ConVar rbmz_full_random;
+ConVar rbmz_max_sound_precaches;
+ConVar rbmz_max_model_precaches;
 
 public void OnPluginStart()
 {
-	g_iParticleEffectNamesTableIdx = FindStringTable("ParticleEffectNames");
-	g_iSoundPrecacheTableIdx = FindStringTable("soundprecache");
-	g_iModelPrecacheTableIdx = FindStringTable("modelprecache");
+	g_particleEffectNamesTable = FindStringTable("ParticleEffectNames");
+	g_soundPrecacheTable = FindStringTable("soundprecache");
+	g_modelPrecacheTable = FindStringTable("modelprecache");
 
-	g_hModelCache = new StringMap();
-	g_hSoundCache = new StringMap();
-	g_hSoundReplacements = new StringMap();
+	g_modelCache = new StringMap();
+	g_soundCache = new StringMap();
+	g_soundReplacements = new StringMap();
 
-	CreateConVar("sm_rainbomizer_version", PLUGIN_VERSION, "Rainbomizer plugin version.", FCVAR_NOTIFY | FCVAR_DONTRECORD);
-	sm_rainbomizer_enabled = CreateConVar("sm_rainbomizer_enabled", "1", "When set, the plugin will be enabled.", FCVAR_NOTIFY);
-	sm_rainbomizer_enabled.AddChangeHook(ConVarChanged_Enable);
-	sm_rainbomizer_randomize_models = CreateConVar("sm_rainbomizer_randomize_models", "1", "When set, models (and their skins/bodygroups) will be randomized.", FCVAR_NOTIFY);
-	sm_rainbomizer_randomize_sounds = CreateConVar("sm_rainbomizer_randomize_sounds", "1", "When set, sounds will be randomized.", FCVAR_NOTIFY);
-	sm_rainbomizer_randomize_playermodels = CreateConVar("sm_rainbomizer_randomize_playermodels", "1", "When set, player models will be randomized.", FCVAR_NOTIFY);
-	sm_rainbomizer_randomize_scale = CreateConVar("sm_rainbomizer_randomize_scale", "0", "When set, the model scale of props/weapons is randomized.", FCVAR_NOTIFY);
-	sm_rainbomizer_max_sound_precaches = CreateConVar("sm_rainbomizer_max_sound_precaches", "8000", "Stop precaching new randomized sounds once the engine 'soundprecache' string table reaches this many total entries.", _, true, 0.0, true, 16384.0);
-	sm_rainbomizer_max_model_precaches = CreateConVar("sm_rainbomizer_max_model_precaches", "3000", "Stop precaching new randomized models once the engine 'modelprecache' string table reaches this many total entries.", _, true, 0.0, true, 4096.0);
+	CreateConVar("rbmz_version", PLUGIN_VERSION, "Rainbomizer plugin version.", FCVAR_NOTIFY | FCVAR_DONTRECORD);
+	rbmz_enabled = CreateConVar("rbmz_enabled", "1", "When set, the plugin will be enabled.", FCVAR_NOTIFY);
+	rbmz_randomize_models = CreateConVar("rbmz_randomize_models", "1", "When set, models will be randomized.", FCVAR_NOTIFY);
+	rbmz_randomize_sounds = CreateConVar("rbmz_randomize_sounds", "1", "When set, sounds will be randomized.", FCVAR_NOTIFY);
+	rbmz_randomize_playermodels = CreateConVar("rbmz_randomize_playermodels", "1", "When set, player models will be randomized.", FCVAR_NOTIFY);
+	rbmz_randomize_viewmodels = CreateConVar("rbmz_randomize_viewmodels", "0", "When set, first-person weapon viewmodels will be randomized.", FCVAR_NOTIFY);
+	rbmz_randomize_scale = CreateConVar("rbmz_randomize_scale", "0", "When set, the model scale of props/weapons is randomized.", FCVAR_NOTIFY);
+	rbmz_full_random = CreateConVar("rbmz_full_random", "0", "When set, models and sounds are randomized from the entire game instead of by matching asset path.", FCVAR_NOTIFY);
+	rbmz_max_sound_precaches = CreateConVar("rbmz_max_sound_precaches", "8192", "Stop precaching new randomized sounds once the engine 'soundprecache' string table reaches this many total entries.", _, true, 0.0, true, 16384.0);
+	rbmz_max_model_precaches = CreateConVar("rbmz_max_model_precaches", "2048", "Stop precaching new randomized models once the engine 'modelprecache' string table reaches this many total entries.", _, true, 0.0, true, 4096.0);
 
-	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_hLoopingSounds);
-	ReadFilesFromKeyValues("configs/rainbomizer/playermodels.cfg", g_hPlayerModels);
+	GameData gamedata = new GameData("rainbomizer");
+	if (gamedata)
+	{
+		g_sdkCallEquipWearable = PrepSDKCall_EquipWearable(gamedata);
+		delete gamedata;
+	}
+	else
+	{
+		LogError("Failed to find rainbomizer gamedata; player model randomization will be disabled.");
+	}
+
+	PSM_Init("rbmz_enabled");
+	PSM_AddNormalSoundHook(NormalSoundHook);
+	PSM_AddEventHook("post_inventory_application", EventHook_PostInventoryApplication);
+	PSM_AddEventHook("teamplay_round_start", EventHook_TeamplayRoundStart);
+
+	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_loopingSounds);
+	ReadFilesFromKeyValues("configs/rainbomizer/playermodels.cfg", g_playerModels);
 
 	BuildSkyNameList();
 
-	IterateDirectoryRecursive("models", g_hModelCache);
-	IterateDirectoryRecursive("sound", g_hSoundCache);
+	IterateDirectoryRecursive("models", g_modelCache);
+	IterateDirectoryRecursive("sound", g_soundCache);
 }
 
 public void OnMapStart()
 {
-	g_hSoundReplacements.Clear();
+	g_soundReplacements.Clear();
 }
 
 public void OnMapInit(const char[] mapName)
 {
-	if (!sm_rainbomizer_enabled.BoolValue)
+	if (!rbmz_enabled.BoolValue)
 		return;
 
 	// Parse the entity lump and randomize static light colors.
@@ -128,85 +148,92 @@ public void OnMapInit(const char[] mapName)
 
 public void OnConfigsExecuted()
 {
-	if (g_bEnabled != sm_rainbomizer_enabled.BoolValue)
-	{
-		TogglePlugin(sm_rainbomizer_enabled.BoolValue);
-	}
+	PSM_TogglePluginState();
 
-	if (g_bEnabled)
-	{
+	if (PSM_IsEnabled())
 		RandomizeSkybox();
-	}
+}
+
+public void OnClientPutInServer(int client)
+{
+	if (PSM_IsEnabled())
+		PSM_SDKHook(client, SDKHook_WeaponSwitch, SDKHookCB_WeaponSwitch);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (!g_bEnabled)
+	if (!PSM_IsEnabled())
 		return;
 
 	// Non-player CBaseAnimating.
-	if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation") && sm_rainbomizer_randomize_models.BoolValue)
+	if (entity > MaxClients && HasEntProp(entity, Prop_Send, "m_bClientSideAnimation") && rbmz_randomize_models.BoolValue)
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ModelEntitySpawnPost);
 	}
 	// Static lights.
 	else if (StrContains(classname, "light") != -1 || StrEqual(classname, "env_lightglow"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
 	}
 	// Colorable entities.
-	else if (StrEqual(classname, "env_sprite") || StrEqual(classname, "env_steam") || StrEqual(classname, "env_steamjet") || StrEqual(classname, "env_smokestack") || StrEqual(classname, "env_embers") || StrEqual(classname, "func_dustmotes"))
+	else if (StrEqual(classname, "env_sprite") || StrEqual(classname, "env_steam") || StrEqual(classname, "env_steamjet") || StrEqual(classname, "env_smokestack") || StrEqual(classname, "env_embers"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RenderEntitySpawnPost);
+	}
+	else if (StrEqual(classname, "func_dustmotes"))
+	{
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_DustMotesSpawnPost);
 	}
 	else if (StrEqual(classname, "env_fog_controller"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_FogControllerSpawnPost);
 	}
 	else if (StrEqual(classname, "env_sun"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_EnvSunSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_EnvSunSpawnPost);
 	}
 	else if (StrEqual(classname, "shadow_control"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ShadowControlSpawnPost);
 	}
 	else if (StrEqual(classname, "info_particle_system"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ParticleSystemSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_ParticleSystemSpawnPost);
 	}
 	else if (StrEqual(classname, "tf_ragdoll"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RagdollSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_RagdollSpawnPost);
 	}
 	else if (StrEqual(classname, "func_precipitation"))
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_PrecipitationSpawnPost);
+		PSM_SDKHook(entity, SDKHook_SpawnPost, SDKHookCB_PrecipitationSpawnPost);
 	}
 }
 
-ArrayList GetApplicablePaths(StringMap map, const char[] base)
+public void OnEntityDestroyed(int entity)
 {
-	ArrayList list;
-	if (map.GetValue(base, list))
-		return list;
+	if (!PSM_IsEnabled())
+		return;
 
-	return null;
+	if (entity == -1)
+		return;
+
+	PSM_SDKUnhook(entity);
 }
 
 void RandomizeSkybox()
 {
-	if (g_hSkyNames.Length == 0)
+	if (g_skyNames.Length == 0)
 		return;
 
 	char skyname[PLATFORM_MAX_PATH];
-	if (g_hSkyNames.GetString(GetRandomInt(0, g_hSkyNames.Length - 1), skyname, sizeof(skyname)))
+	if (g_skyNames.GetString(GetRandomInt(0, g_skyNames.Length - 1), skyname, sizeof(skyname)))
 		DispatchKeyValue(0, "skyname", skyname);
 }
 
 void BuildSkyNameList()
 {
-	g_hSkyNames = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+	g_skyNames = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
 	StringMap faces = new StringMap();
 	ArrayList tops = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
@@ -254,8 +281,8 @@ void BuildSkyNameList()
 		if (blen >= 5 && StrEqual(base[blen - 5], "_dx80", false))
 			continue;
 
-		if (HasAllSkyFaces(faces, base) && g_hSkyNames.FindString(base) == -1)
-			g_hSkyNames.PushString(base);
+		if (HasAllSkyFaces(faces, base) && g_skyNames.FindString(base) == -1)
+			g_skyNames.PushString(base);
 	}
 
 	delete faces;
@@ -284,24 +311,19 @@ void RandomizeLightEntryColor(EntityLumpEntry entry, const char[] key)
 	int index = entry.GetNextKey(key, value, sizeof(value));
 	if (index != -1)
 	{
-		int colorInt[4];
-		StringToColor(value, colorInt);
+		int color[4];
+		StringToColor(value, color);
 
-		char strColor[32];
-		GetRandomColorStringRGBA(strColor, sizeof(strColor), colorInt[3]);
-		entry.Update(index, NULL_STRING, strColor);
+		char randomColor[32];
+		GetRandomColorStringRGBA(randomColor, sizeof(randomColor), color[3]);
+		entry.Update(index, NULL_STRING, randomColor);
 	}
 }
 
-void GetRandomColorStringRGBA(char[] color, int maxlength, int alpha_override = -1)
+void GetRandomColorStringRGBA(char[] color, int maxlength, int alphaOverride = -1)
 {
-	int a = (alpha_override != -1) ? alpha_override : GetRandomInt(0, 255);
-	Format(color, maxlength, "%d %d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255), a);
-}
-
-int GetRandomColorInt(int alpha)
-{
-	return GetRandomInt(0, 255) | (GetRandomInt(0, 255) << 8) | (GetRandomInt(0, 255) << 16) | (alpha << 24);
+	int alpha = (alphaOverride != -1) ? alphaOverride : GetRandomInt(0, 255);
+	Format(color, maxlength, "%d %d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255), alpha);
 }
 
 int GetColorAlpha(int color)
@@ -320,14 +342,19 @@ void StringToColor(const char[] str, int color[4])
 	}
 }
 
-void RandomizeEntityColor(int entity, PropType type, const char[] prop)
+// Randomizes an entity color's RGB while preserving its current alpha, applied via its keyvalue.
+void RandomizeColor(int entity, const char[] prop, const char[] key)
 {
-	SetEntProp(entity, type, prop, GetRandomColorInt(GetColorAlpha(GetEntProp(entity, type, prop))));
+	int alpha = GetColorAlpha(GetEntProp(entity, Prop_Send, prop));
+
+	char color[24];
+	Format(color, sizeof(color), "%d %d %d %d", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255), alpha);
+	DispatchKeyValue(entity, key, color);
 }
 
-bool GetStringTableEntry(int tableidx, int stringidx, char[] str, int maxlength)
+bool GetStringTableEntry(int table, int stringIndex, char[] str, int maxlength)
 {
-	if (ReadStringTable(tableidx, stringidx, str, maxlength))
+	if (ReadStringTable(table, stringIndex, str, maxlength))
 	{
 		// Ignore empty entries.
 		if (!str[0])
@@ -474,111 +501,137 @@ bool IsValidFile(const char[] filename)
 	if (!strcopy(extension, sizeof(extension), filename[strlen(filename) - 4]))
 		return false;
 
-	if ((StrEqual(extension, ".mp3") || StrEqual(extension, ".wav")) && g_hLoopingSounds.FindString(filename) == -1)
+	if ((StrEqual(extension, ".mp3") || StrEqual(extension, ".wav")) && g_loopingSounds.FindString(filename) == -1)
 		return true;
 
 	// Don't use festivizer models as there are far too many.
 	return StrEqual(extension, ".mdl") && StrContains(filename, "festivizer") == -1 && StrContains(filename, "xmas") == -1 && StrContains(filename, "xms") == -1;
 }
 
-void TogglePlugin(bool bEnable)
+ArrayList GetApplicablePaths(StringMap map, const char[] base)
 {
-	g_bEnabled = bEnable;
+	ArrayList list;
+	if (map.GetValue(base, list))
+		return list;
 
-	if (bEnable)
-	{
-		HookEvent("post_inventory_application", EventHook_PostInventoryApplication);
-		AddNormalSoundHook(NormalSoundHook);
-	}
-	else
-	{
-		UnhookEvent("post_inventory_application", EventHook_PostInventoryApplication);
-		RemoveNormalSoundHook(NormalSoundHook);
-	}
+	return null;
 }
 
 void RandomizeModelAppearance(int entity)
 {
-	SetEntProp(entity, Prop_Send, "m_nSkin", GetRandomInt(0, 3));
-	SetEntProp(entity, Prop_Send, "m_nBody", GetRandomInt(0, 63));
+	DispatchKeyValueInt(entity, "skin", GetRandomInt(0, 3));
+	DispatchKeyValueInt(entity, "body", GetRandomInt(0, 63));
 
-	if (sm_rainbomizer_randomize_scale.BoolValue)
-		SetEntPropFloat(entity, Prop_Send, "m_flModelScale", GetRandomFloat(0.5, 2.0));
+	if (rbmz_randomize_scale.BoolValue)
+		DispatchKeyValueFloat(entity, "modelscale", GetRandomFloat(0.5, 2.0));
+}
+
+int SelectRandomModelIndex(ArrayList list)
+{
+	if (list == null || !list.Length)
+		return 0;
+
+	char model[PLATFORM_MAX_PATH];
+	if (GetStringTableNumStrings(g_modelPrecacheTable) < rbmz_max_model_precaches.IntValue)
+	{
+		list.GetString(GetRandomInt(0, list.Length - 1), model, sizeof(model));
+	}
+	else if (!SelectPrecachedString(list, g_modelPrecacheTable, 0, model, sizeof(model)))
+	{
+		return 0;
+	}
+
+	return PrecacheModel(model);
 }
 
 static void SDKHookCB_ModelEntitySpawnPost(int entity)
 {
-	if (!sm_rainbomizer_randomize_models.BoolValue)
+	if (!rbmz_randomize_models.BoolValue)
 		return;
 
 	RandomizeModelAppearance(entity);
 
-	char m_ModelName[PLATFORM_MAX_PATH];
-	if (!GetEntPropString(entity, Prop_Data, "m_ModelName", m_ModelName, sizeof(m_ModelName)))
-		return;
-
-	if (StrContains(m_ModelName, "weapons/") != -1 || StrContains(m_ModelName, "player/items/") != -1)
-		GetPreviousDirectoryPath(m_ModelName, 2);
-	else
-		GetPreviousDirectoryPath(m_ModelName, 1);
-
-	ArrayList list = GetApplicablePaths(g_hModelCache, m_ModelName);
-	if (list == null || !list.Length)
-		return;
-
-	char model[PLATFORM_MAX_PATH];
-	bool chosen;
-	if (GetStringTableNumStrings(g_iModelPrecacheTableIdx) < sm_rainbomizer_max_model_precaches.IntValue)
+	char base[PLATFORM_MAX_PATH];
+	if (rbmz_full_random.BoolValue)
 	{
-		list.GetString(GetRandomInt(0, list.Length - 1), model, sizeof(model));
-		chosen = true;
+		strcopy(base, sizeof(base), "models");
 	}
 	else
 	{
-		chosen = SelectPrecachedString(list, g_iModelPrecacheTableIdx, 0, model, sizeof(model));
+		if (!GetEntPropString(entity, Prop_Data, "m_ModelName", base, sizeof(base)))
+			return;
+
+		if (StrContains(base, "weapons/") != -1 || StrContains(base, "player/items/") != -1)
+			GetPreviousDirectoryPath(base, 2);
+		else
+			GetPreviousDirectoryPath(base, 1);
 	}
 
-	if (chosen)
-		SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
+	int index = SelectRandomModelIndex(GetApplicablePaths(g_modelCache, base));
+	if (index > 0)
+		SetEntProp(entity, Prop_Data, "m_nModelIndexOverrides", index);
 
 	if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
 }
 
+void RandomizeViewModel(int weapon)
+{
+	if (!HasEntProp(weapon, Prop_Send, "m_nCustomViewmodelModelIndex"))
+		return;
+
+	int index = SelectRandomModelIndex(GetApplicablePaths(g_modelCache, "models"));
+	if (index > 0)
+		SetEntProp(weapon, Prop_Send, "m_nCustomViewmodelModelIndex", index);
+}
+
+static Action SDKHookCB_WeaponSwitch(int client, int weapon)
+{
+	if (rbmz_randomize_viewmodels.BoolValue && IsValidEntity(weapon))
+		RandomizeViewModel(weapon);
+
+	return Plugin_Continue;
+}
+
 static void SDKHookCB_RenderEntitySpawnPost(int entity)
 {
-	RandomizeEntityColor(entity, Prop_Send, "m_clrRender");
+	RandomizeColor(entity, "m_clrRender", "rendercolor");
+}
+
+static void SDKHookCB_DustMotesSpawnPost(int entity)
+{
+	RandomizeColor(entity, "m_Color", "Color");
 }
 
 static void SDKHookCB_FogControllerSpawnPost(int entity)
 {
-	RandomizeEntityColor(entity, Prop_Send, "m_fog.colorPrimary");
-	RandomizeEntityColor(entity, Prop_Send, "m_fog.colorSecondary");
-	SetEntProp(entity, Prop_Send, "m_fog.blend", true);
+	RandomizeColor(entity, "m_fog.colorPrimary", "fogcolor");
+	RandomizeColor(entity, "m_fog.colorSecondary", "fogcolor2");
+	DispatchKeyValueInt(entity, "fogblend", 1);
 }
 
 static void SDKHookCB_EnvSunSpawnPost(int entity)
 {
-	RandomizeEntityColor(entity, Prop_Send, "m_clrRender");
-	RandomizeEntityColor(entity, Prop_Send, "m_clrOverlay");
+	RandomizeColor(entity, "m_clrRender", "rendercolor");
+	RandomizeColor(entity, "m_clrOverlay", "overlaycolor");
 
-	SetEntProp(entity, Prop_Send, "m_nSize", GetRandomInt(4, 64));
-	SetEntProp(entity, Prop_Send, "m_nOverlaySize", GetRandomInt(4, 64));
+	DispatchKeyValueInt(entity, "size", GetRandomInt(4, 64));
+	DispatchKeyValueInt(entity, "overlaysize", GetRandomInt(4, 64));
 }
 
 static void SDKHookCB_ShadowControlSpawnPost(int entity)
 {
-	RandomizeEntityColor(entity, Prop_Send, "m_shadowColor");
+	RandomizeColor(entity, "m_shadowColor", "color");
 }
 
 static void SDKHookCB_ParticleSystemSpawnPost(int entity)
 {
-	int num = GetStringTableNumStrings(g_iParticleEffectNamesTableIdx);
-	int stringidx = GetRandomInt(0, num - 1);
+	int num = GetStringTableNumStrings(g_particleEffectNamesTable);
+	int stringIndex = GetRandomInt(0, num - 1);
 
 	char effectName[PLATFORM_MAX_PATH];
-	if (GetStringTableEntry(g_iParticleEffectNamesTableIdx, stringidx, effectName, sizeof(effectName)))
-		SetEntPropString(entity, Prop_Data, "m_iszEffectName", effectName);
+	if (GetStringTableEntry(g_particleEffectNamesTable, stringIndex, effectName, sizeof(effectName)))
+		DispatchKeyValue(entity, "effect_name", effectName);
 }
 
 static void SDKHookCB_RagdollSpawnPost(int entity)
@@ -597,6 +650,10 @@ static void RequestFrame_RandomizeRagdoll(int ref)
 	SetEntProp(entity, Prop_Send, "m_bBurning", false);
 	SetEntProp(entity, Prop_Send, "m_bElectrocuted", false);
 
+	// Equal chance of a normal ragdoll or a single random special one.
+	if (GetRandomInt(0, 1) == 0)
+		return;
+
 	switch (GetRandomInt(0, 3))
 	{
 		case 0: SetEntProp(entity, Prop_Send, "m_bGoldRagdoll", true);
@@ -609,17 +666,17 @@ static void RequestFrame_RandomizeRagdoll(int ref)
 static void SDKHookCB_PrecipitationSpawnPost(int entity)
 {
 	// 0 = rain, 1 = snow, 2 = ash, 3 = snowfall (NUM_PRECIPITATION_TYPES)
-	SetEntProp(entity, Prop_Send, "m_nPrecipType", GetRandomInt(0, 3));
+	DispatchKeyValueInt(entity, "preciptype", GetRandomInt(0, 3));
 }
 
-bool SelectPrecachedString(ArrayList list, int tableidx, int prefixLen, char[] out, int maxlength)
+bool SelectPrecachedString(ArrayList list, int table, int prefixLen, char[] out, int maxlength)
 {
 	int count;
 	char path[PLATFORM_MAX_PATH];
 	for (int i = 0; i < list.Length; i++)
 	{
 		list.GetString(i, path, sizeof(path));
-		if (FindStringIndex(tableidx, path[prefixLen]) == INVALID_STRING_INDEX)
+		if (FindStringIndex(table, path[prefixLen]) == INVALID_STRING_INDEX)
 			continue;
 
 		count++;
@@ -632,26 +689,29 @@ bool SelectPrecachedString(ArrayList list, int tableidx, int prefixLen, char[] o
 
 bool SelectSoundReplacement(const char[] sample, char[] replacement, int maxlength)
 {
-	char filePath[PLATFORM_MAX_PATH];
-	GetBaseSoundPath(sample, filePath, sizeof(filePath));
+	char base[PLATFORM_MAX_PATH];
+	if (rbmz_full_random.BoolValue)
+		strcopy(base, sizeof(base), "sound");
+	else
+		GetBaseSoundPath(sample, base, sizeof(base));
 
-	ArrayList list = GetApplicablePaths(g_hSoundCache, filePath);
+	ArrayList list = GetApplicablePaths(g_soundCache, base);
 	if (list == null || !list.Length)
 		return false;
 
-	if (GetStringTableNumStrings(g_iSoundPrecacheTableIdx) < sm_rainbomizer_max_sound_precaches.IntValue)
+	if (GetStringTableNumStrings(g_soundPrecacheTable) < rbmz_max_sound_precaches.IntValue)
 	{
 		char path[PLATFORM_MAX_PATH];
 		list.GetString(GetRandomInt(0, list.Length - 1), path, sizeof(path));
 		strcopy(replacement, maxlength, path[strlen("sound/")]);
 		PrecacheSound(replacement);
 	}
-	else if (!SelectPrecachedString(list, g_iSoundPrecacheTableIdx, strlen("sound/"), replacement, maxlength))
+	else if (!SelectPrecachedString(list, g_soundPrecacheTable, strlen("sound/"), replacement, maxlength))
 	{
 		return false;
 	}
 
-	g_hSoundReplacements.SetString(sample, replacement);
+	g_soundReplacements.SetString(sample, replacement);
 	return true;
 }
 
@@ -659,10 +719,10 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 {
 	bool changed;
 
-	if (sm_rainbomizer_randomize_sounds.BoolValue)
+	if (rbmz_randomize_sounds.BoolValue)
 	{
 		char replacement[PLATFORM_MAX_PATH];
-		if (g_hSoundReplacements.GetString(sample, replacement, sizeof(replacement)) || SelectSoundReplacement(sample, replacement, sizeof(replacement)))
+		if (g_soundReplacements.GetString(sample, replacement, sizeof(replacement)) || SelectSoundReplacement(sample, replacement, sizeof(replacement)))
 		{
 			strcopy(sample, sizeof(sample), replacement);
 			changed = true;
@@ -674,18 +734,36 @@ static Action NormalSoundHook(int clients[MAXPLAYERS], int &numClients, char sam
 
 static void EventHook_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!sm_rainbomizer_randomize_playermodels.BoolValue || g_hPlayerModels.Length == 0)
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (!client)
 		return;
 
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (rbmz_randomize_playermodels.BoolValue && g_playerModels.Length > 0)
+		RandomizePlayerModel(client);
+
+	if (rbmz_randomize_viewmodels.BoolValue)
+	{
+		for (int i = 0; i < GetEntPropArraySize(client, Prop_Send, "m_hMyWeapons"); i++)
+		{
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hMyWeapons", i);
+			if (weapon != -1)
+				RandomizeViewModel(weapon);
+		}
+	}
+}
+
+void RandomizePlayerModel(int client)
+{
+	if (!g_sdkCallEquipWearable)
+		return;
 
 	char model[PLATFORM_MAX_PATH];
-	g_hPlayerModels.GetString(GetRandomInt(0, g_hPlayerModels.Length - 1), model, sizeof(model));
+	g_playerModels.GetString(GetRandomInt(0, g_playerModels.Length - 1), model, sizeof(model));
 
 	int wearable = CreateEntityByName("tf_wearable");
 	if (IsValidEntity(wearable) && DispatchSpawn(wearable))
 	{
-		TF2Util_EquipPlayerWearable(client, wearable);
+		SDKCall(g_sdkCallEquipWearable, client, wearable);
 
 		SetEntProp(client, Prop_Send, "m_nRenderFX", RENDERFX_FADE_FAST);
 		SetEntProp(wearable, Prop_Data, "m_nModelIndexOverrides", PrecacheModel(model));
@@ -693,10 +771,21 @@ static void EventHook_PostInventoryApplication(Event event, const char[] name, b
 	}
 }
 
-static void ConVarChanged_Enable(ConVar convar, const char[] oldValue, const char[] newValue)
+static void EventHook_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-	if (g_bEnabled != convar.BoolValue)
-	{
-		TogglePlugin(convar.BoolValue);
-	}
+	if (event.GetBool("full_reset"))
+		RandomizeSkybox();
+}
+
+static Handle PrepSDKCall_EquipWearable(GameData gamedata)
+{
+	StartPrepSDKCall(SDKCall_Player);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTFPlayer::EquipWearable()");
+	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+
+	Handle call = EndPrepSDKCall();
+	if (!call)
+		LogError("Failed to create SDKCall: CTFPlayer::EquipWearable()");
+
+	return call;
 }
