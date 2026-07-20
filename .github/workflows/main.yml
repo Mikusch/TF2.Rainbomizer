@@ -2,72 +2,75 @@ name: Compile and release
 
 on:
   push:
-    branches:
-      master
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
 
 env:
   PLUGIN_NAME: rainbomizer
+  SCRIPTS_PATH: addons/sourcemod/scripting
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        sm-version: [ '1.11.x' ]
     permissions:
       contents: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        sm-version: [ '1.12.x' ]
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-      - name: Set environment variables
-        run: echo SCRIPTS_PATH=$(pwd) >> $GITHUB_ENV
+      - name: Download include files
+        run: |
+          set -euo pipefail
+          includes=(
+            "https://raw.githubusercontent.com/Mikusch/PluginStateManager/refs/heads/master/addons/sourcemod/scripting/include/pluginstatemanager.inc"
+          )
 
-      - name: Download includes
-        run: wget -P ${{ env.SCRIPTS_PATH }}/addons/sourcemod/scripting/include https://raw.githubusercontent.com/nosoop/SM-TFUtils/master/scripting/include/tf2utils.inc
+          mkdir -p "${{ env.SCRIPTS_PATH }}/include"
 
-      - name: Setup SourcePawn Compiler ${{ matrix.sm-version }}
+          for url in "${includes[@]}"; do
+            echo "Downloading $url"
+            curl --fail -sSL -O --output-dir "${{ env.SCRIPTS_PATH }}/include" "$url"
+          done
+
+      - name: Setup SourcePawn compiler
         id: setup_sp
         uses: rumblefrog/setup-sp@master
         with:
           version: ${{ matrix.sm-version }}
-          version-file: ./addons/sourcemod/scripting/${{ env.PLUGIN_NAME }}.sp
+          version-file: ${{ env.SCRIPTS_PATH }}/${{ env.PLUGIN_NAME }}.sp
           define-name: PLUGIN_VERSION
 
-      - name: Compile plugins
+      - name: Compile plugin
         run: |
-          mkdir ../plugins
-          spcomp -v2 -E -i "include" -o"../plugins/${{ env.PLUGIN_NAME }}.smx" ${{ env.PLUGIN_NAME }}.sp
-          echo "===OUT FILES==="
-          ls ../plugins
-          echo "===VERSION==="
-          echo ${{ steps.setup_sp.outputs.plugin-version }}
-        working-directory: ${{ env.SCRIPTS_PATH }}/addons/sourcemod/scripting
+          set -euo pipefail
+          mkdir -p addons/sourcemod/plugins
+          spcomp -v2 -E -i "${{ env.SCRIPTS_PATH }}/include" -o "addons/sourcemod/plugins/${{ env.PLUGIN_NAME }}.smx" "${{ env.SCRIPTS_PATH }}/${{ env.PLUGIN_NAME }}.sp"
 
-      - name: Install zip
-        uses: montudor/action-zip@v1
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.PLUGIN_NAME }}-${{ matrix.sm-version }}
+          path: addons/sourcemod/plugins/${{ env.PLUGIN_NAME }}.smx
+          if-no-files-found: error
 
       - name: Zip output
-        run: |
-          zip -qq -y -r ${{ github.event.repository.name }}.zip configs plugins scripting extensions gamedata translations data
-        working-directory: ${{ env.SCRIPTS_PATH }}/addons/sourcemod
+        if: github.ref_name == 'master' && matrix.sm-version == '1.12.x'
+        run: zip -qq -r ${{ github.event.repository.name }}.zip addons
 
-      - name: List files in the directory
-        run: ls -R
-        working-directory: ${{ env.SCRIPTS_PATH }}/addons/sourcemod
-
-      - name: List files in the zip
-        run: unzip -l ${{ github.event.repository.name }}.zip
-        working-directory: ${{ env.SCRIPTS_PATH }}/addons/sourcemod
-
-      - name: Create Release
+      - name: Create GitHub release
+        if: github.ref_name == 'master' && matrix.sm-version == '1.12.x'
         uses: ncipollo/release-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.setup_sp.outputs.plugin-version }}
-          artifacts: addons/sourcemod/${{ github.event.repository.name }}.zip
+          artifacts: ./${{ github.event.repository.name }}.zip
           draft: true
           allowUpdates: true
           updateOnlyUnreleased: true
