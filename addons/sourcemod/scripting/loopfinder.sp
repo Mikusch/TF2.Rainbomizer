@@ -1,6 +1,8 @@
 #pragma semicolon 1
 #pragma newdecls required
 
+#include <sourcemod>
+
 #define CONFIG_PATH		"configs/rainbomizer/looping_sounds.cfg"
 
 int g_numProcessed;
@@ -71,43 +73,95 @@ void IterateDirectoryRecursive(const char[] directory, KeyValues kv)
 				if (!strcopy(fileExt, sizeof(fileExt), fileName[strlen(fileName) - 3]))
 					continue;
 				
-				if (StrEqual(fileExt, "wav"))
+				if (StrEqual(fileExt, "wav") && IsLoopingWav(fileName))
 				{
-					File file = OpenFile(fileName, "rb", true, NULL_STRING);
-					if (file)
+					LogMessage("Found looping file: %s", fileName);
+
+					char key[8];
+					if (IntToString(g_numProcessed++, key, sizeof(key)))
 					{
-						int items[4];
-						while (file.Read(items, sizeof(items), 1))
-						{
-							char[] chunkId = new char[4];
-							for (int i = 0; i < sizeof(items); i++)
-							{
-								chunkId[i] = items[i];
-							}
-							
-							// "cue " and "smpl" chunks usually indicate loops
-							if (StrEqual(chunkId, "cue ") || StrEqual(chunkId, "smpl"))
-							{
-								LogMessage("Found looping file: %s", fileName);
-								
-								char key[8];
-								if (IntToString(g_numProcessed++, key, sizeof(key)))
-								{
-									kv.JumpToKey(key, true);
-									kv.SetString(NULL_STRING, fileName);
-									kv.GoBack();
-								}
-								
-								delete file;
-								break;
-							}
-						}
+						kv.JumpToKey(key, true);
+						kv.SetString(NULL_STRING, fileName);
+						kv.GoBack();
 					}
-					delete file;
 				}
 			}
 		}
 	}
 	
 	delete directoryListing;
+}
+
+bool IsLoopingWav(const char[] fileName)
+{
+	File file = OpenFile(fileName, "rb", true, NULL_STRING);
+	if (!file)
+		return false;
+
+	bool looping = false;
+
+	char id[5];
+	if (ReadChunkId(file, id) && StrEqual(id, "RIFF"))
+	{
+		file.Seek(4, SEEK_CUR);		// RIFF chunk size
+		if (ReadChunkId(file, id) && StrEqual(id, "WAVE"))
+		{
+			int size;
+			while (!looping && ReadChunkId(file, id) && ReadInt32(file, size))
+			{
+				// Chunks are word-aligned, so an odd size carries a pad byte.
+				int next = file.Position + size + (size & 1);
+
+				if (StrEqual(id, "cue "))
+				{
+					int cueCount;
+					if (ReadInt32(file, cueCount) && cueCount > 0)
+						looping = true;
+				}
+				else if (StrEqual(id, "smpl"))
+				{
+					file.Seek(7 * 4, SEEK_CUR);		// skip to cSampleLoops
+
+					int sampleLoops;
+					if (ReadInt32(file, sampleLoops) && sampleLoops > 0)
+					{
+						file.Seek(2 * 4, SEEK_CUR);	// skip cbSamplerData + Loops[0].dwIdentifier
+
+						int loopType;
+						if (ReadInt32(file, loopType) && loopType == 0)
+							looping = true;			// only forward loops actually loop
+					}
+				}
+
+				file.Seek(next, SEEK_SET);
+			}
+		}
+	}
+
+	delete file;
+	return looping;
+}
+
+bool ReadChunkId(File file, char id[5])
+{
+	int bytes[4];
+	if (file.Read(bytes, 4, 1) != 4)
+		return false;
+
+	id[0] = bytes[0];
+	id[1] = bytes[1];
+	id[2] = bytes[2];
+	id[3] = bytes[3];
+	id[4] = '\0';
+	return true;
+}
+
+bool ReadInt32(File file, int &value)
+{
+	int buffer[1];
+	if (file.Read(buffer, 1, 4) != 1)
+		return false;
+
+	value = buffer[0];
+	return true;
 }
