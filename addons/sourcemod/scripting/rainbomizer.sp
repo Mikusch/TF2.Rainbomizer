@@ -36,7 +36,7 @@
 #define CHAR_SPATIALSTEREO	')'		// as one of 1st 2 chars in name, indicates spatialized stereo wav
 #define CHAR_FAST_PITCH		'}'		// as one of 1st 2 chars in name, forces low quality, non-interpolated pitch shift
 
-public Plugin myInfo =
+public Plugin myinfo =
 {
 	name = "[TF2] Rainbomizer",
 	author = "Mikusch",
@@ -55,6 +55,7 @@ StringMap g_soundReplacements;
 ArrayList g_loopingSounds;
 ArrayList g_skyNames;
 ArrayList g_playerModels;
+ArrayList g_viewModels;
 
 Handle g_sdkCallEquipWearable;
 
@@ -108,10 +109,11 @@ public void OnPluginStart()
 	ReadFilesFromKeyValues("configs/rainbomizer/looping_sounds.cfg", g_loopingSounds);
 	ReadFilesFromKeyValues("configs/rainbomizer/playermodels.cfg", g_playerModels);
 
-	BuildSkyNameList();
-
 	IterateDirectoryRecursive("models", g_modelCache);
 	IterateDirectoryRecursive("sound", g_soundCache);
+
+	BuildViewModelList();
+	BuildSkyNameList();
 }
 
 public void OnMapStart()
@@ -575,12 +577,29 @@ static void SDKHookCB_ModelEntitySpawnPost(int entity)
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
 }
 
+void BuildViewModelList()
+{
+	g_viewModels = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+
+	ArrayList models = GetApplicablePaths(g_modelCache, "models");
+	if (models == null)
+		return;
+
+	char path[PLATFORM_MAX_PATH];
+	for (int i = 0; i < models.Length; i++)
+	{
+		models.GetString(i, path, sizeof(path));
+		if (StrContains(path, "weapons/c_models/") != -1)
+			g_viewModels.PushString(path);
+	}
+}
+
 void RandomizeViewModel(int weapon)
 {
 	if (!HasEntProp(weapon, Prop_Send, "m_nCustomViewmodelModelIndex"))
 		return;
 
-	int index = SelectRandomModelIndex(GetApplicablePaths(g_modelCache, "models"));
+	int index = SelectRandomModelIndex(g_viewModels);
 	if (index > 0)
 		SetEntProp(weapon, Prop_Send, "m_nCustomViewmodelModelIndex", index);
 }
