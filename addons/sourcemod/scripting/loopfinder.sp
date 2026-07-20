@@ -10,7 +10,6 @@ int g_numProcessed;
 // NOTE:
 // This is not a usable plugin. It is used to generate a list of looping sounds.
 
-// - This plugin requires a SlowScriptTimeout of 0 to work properly
 // - By default, HL2 sounds are not processed as the sound data is not present in the server VPKs
 //   - You can fix this by copying hl2_sound_misc VPKs from the base game to the server
 
@@ -101,40 +100,36 @@ bool IsLoopingWav(const char[] fileName)
 	bool looping = false;
 
 	char id[5];
-	if (ReadChunkId(file, id) && StrEqual(id, "RIFF"))
+	int size;
+	if (ReadChunkId(file, id) && StrEqual(id, "RIFF") && ReadInt32(file, size) && ReadChunkId(file, id) && StrEqual(id, "WAVE"))
 	{
-		file.Seek(4, SEEK_CUR);		// RIFF chunk size
-		if (ReadChunkId(file, id) && StrEqual(id, "WAVE"))
+		while (!looping && ReadChunkId(file, id) && ReadInt32(file, size))
 		{
-			int size;
-			while (!looping && ReadChunkId(file, id) && ReadInt32(file, size))
-			{
-				// Chunks are word-aligned, so an odd size carries a pad byte.
-				int next = file.Position + size + (size & 1);
+			int pos = file.Position;
+			int next = pos + size + (size & 1);
 
-				if (StrEqual(id, "cue "))
+			if (StrEqual(id, "cue "))
+			{
+				int cueCount;
+				if (ReadInt32(file, cueCount) && cueCount > 0)
+					looping = true;
+			}
+			else if (StrEqual(id, "smpl"))
+			{
+				// smpl body dwords: 0-6 header, 7 = cSampleLoops, 8 = cbSamplerData,
+				// then the loop records (9 = dwIdentifier, 10 = dwType, ...).
+				// A dwType of 0 is a forward loop.
+				int sampleLoops;
+				if (file.Seek(pos + 7 * 4, SEEK_SET) && ReadInt32(file, sampleLoops) && sampleLoops > 0)
 				{
-					int cueCount;
-					if (ReadInt32(file, cueCount) && cueCount > 0)
+					int loopType;
+					if (file.Seek(pos + 10 * 4, SEEK_SET) && ReadInt32(file, loopType) && loopType == 0)
 						looping = true;
 				}
-				else if (StrEqual(id, "smpl"))
-				{
-					file.Seek(7 * 4, SEEK_CUR);		// skip to cSampleLoops
-
-					int sampleLoops;
-					if (ReadInt32(file, sampleLoops) && sampleLoops > 0)
-					{
-						file.Seek(2 * 4, SEEK_CUR);	// skip cbSamplerData + Loops[0].dwIdentifier
-
-						int loopType;
-						if (ReadInt32(file, loopType) && loopType == 0)
-							looping = true;			// only forward loops actually loop
-					}
-				}
-
-				file.Seek(next, SEEK_SET);
 			}
+
+			if (!file.Seek(next, SEEK_SET))
+				break;
 		}
 	}
 
